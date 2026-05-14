@@ -21,8 +21,10 @@ const item = {
 }
 
 export default function WeeklyPage() {
-  const { weeklyGoals, weeklyHistory, toggleWeeklyGoal, addWeeklyGoal } = useStore()
+  const { weeklyGoals: weeklyGoalsRaw, weeklyHistory: weeklyHistoryRaw, toggleWeeklyGoal, addWeeklyGoal } = useStore()
   const weekStart = getWeekStartString()
+  const weeklyGoals = Array.isArray(weeklyGoalsRaw) ? weeklyGoalsRaw : []
+  const weeklyHistory = weeklyHistoryRaw && typeof weeklyHistoryRaw === 'object' ? weeklyHistoryRaw : {}
   const weekLog = weeklyHistory[weekStart] ?? { weekStart, completed: {} }
   const [addOpen, setAddOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')

@@ -134,9 +134,14 @@ function TeachModal({
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
+import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
+
 export default function NutritionPage() {
-  const { settings, customFoods, addMealEntry, removeMealEntry, addCustomFood, meals } = useStore()
-  const todayMeals = useTodayMeals()
+  const { settings, customFoods: customFoodsRaw, addMealEntry, removeMealEntry, addCustomFood, meals } = useStore()
+  const todayMealsRaw = useTodayMeals()
+  const todayMeals = Array.isArray(todayMealsRaw) ? todayMealsRaw : []
+  const customFoods = Array.isArray(customFoodsRaw) ? customFoodsRaw : []
+  const targets = settings?.targets ?? DEFAULT_SETTINGS.targets
   const { kcal, protein, carbs, fat } = sumMacros(todayMeals)
   const today = toLocalDateString(new Date())
 
@@ -201,7 +206,7 @@ export default function NutritionPage() {
               <p className="text-white/40 text-xs uppercase tracking-wider">Today&rsquo;s Total</p>
               <p className="text-3xl font-black text-white mt-1">
                 {Math.round(kcal)}
-                <span className="text-white/40 text-lg ml-1">/ {settings.targets.kcal} kcal</span>
+                <span className="text-white/40 text-lg ml-1">/ {targets.kcal} kcal</span>
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl flex items-center justify-center"
@@ -216,16 +221,16 @@ export default function NutritionPage() {
               className="h-full rounded-full"
               style={{ background: 'linear-gradient(90deg, #C026FF, #FF2D87)' }}
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((kcal / settings.targets.kcal) * 100, 100)}%` }}
+              animate={{ width: `${Math.min((kcal / (targets.kcal || 1)) * 100, 100)}%` }}
               transition={{ duration: 0.8, ease: 'easeOut' }}
             />
           </div>
 
           {/* Macro rings */}
           <div className="grid grid-cols-3 gap-4">
-            <MacroRing label="Protein" current={protein} target={settings.targets.protein} color="#FF2D87" />
-            <MacroRing label="Carbs" current={carbs} target={settings.targets.carbs} color="#C6FF3D" />
-            <MacroRing label="Fat" current={fat} target={settings.targets.fat} color="#FFB020" />
+            <MacroRing label="Protein" current={protein} target={targets.protein} color="#FF2D87" />
+            <MacroRing label="Carbs" current={carbs} target={targets.carbs} color="#C6FF3D" />
+            <MacroRing label="Fat" current={fat} target={targets.fat} color="#FFB020" />
           </div>
         </GlassCard>
 

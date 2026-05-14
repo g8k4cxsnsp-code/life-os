@@ -34,10 +34,13 @@ function getDayStatus(
 }
 
 export default function CalendarPage() {
-  const { history, goals, settings, setDayNotes } = useStore()
+  const { history: historyRaw, goals: goalsRaw, settings, setDayNotes } = useStore()
   const [viewDate, setViewDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const today = new Date()
+
+  const history = historyRaw && typeof historyRaw === 'object' ? historyRaw : {}
+  const goals = Array.isArray(goalsRaw) ? goalsRaw : []
 
   const monthStart = startOfMonth(viewDate)
   const monthEnd = endOfMonth(viewDate)
@@ -49,7 +52,7 @@ export default function CalendarPage() {
   const selectedGoals = selectedDate
     ? goals.filter((g) => g.active && g.cadence === 'daily' && (() => {
         const weekday = getWeekdayFromDate(new Date(selectedDate + 'T12:00:00'))
-        if (!g.schedule) return true
+        if (!Array.isArray(g.schedule)) return true
         return g.schedule.includes(weekday)
       })())
     : []

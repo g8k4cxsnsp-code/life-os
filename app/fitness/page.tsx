@@ -15,15 +15,18 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Plus, Trophy, TrendingUp, Scale, Dumbbell } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Lift } from '@/types'
+import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 
 const TABS = ['Overview', 'Log Workout', 'Bodyweight', 'PRs'] as const
 type Tab = typeof TABS[number]
 
 function OverviewTab({ lifts }: { lifts: Lift[] }) {
-  const { liftSets } = useStore()
+  const { liftSets: liftSetsRaw } = useStore()
+  const safeLifts = Array.isArray(lifts) ? lifts : []
+  const liftSets = Array.isArray(liftSetsRaw) ? liftSetsRaw : []
   return (
     <div className="grid grid-cols-2 gap-3">
-      {lifts.slice(0, 6).map((lift) => {
+      {safeLifts.slice(0, 6).map((lift) => {
         const sets = liftSets.filter((s) => s.liftId === lift.id)
         const pr = getPR(sets)
         const color = lift.unit === 'bw' ? '#C6FF3D' : '#FF2D87'
@@ -53,8 +56,13 @@ function OverviewTab({ lifts }: { lifts: Lift[] }) {
 }
 
 function BodyweightSection() {
-  const { bodyweight, addBodyweight, settings } = useStore()
+  const { bodyweight: bodyweightRaw, addBodyweight, settings } = useStore()
   const [kgInput, setKgInput] = useState('')
+
+  const bodyweight = Array.isArray(bodyweightRaw) ? bodyweightRaw : []
+  const startingWeight = typeof settings?.startingWeight === 'number'
+    ? settings.startingWeight
+    : DEFAULT_SETTINGS.startingWeight
 
   const sorted = [...bodyweight].sort((a, b) => a.date.localeCompare(b.date))
   const chartData = sorted.slice(-60).map((b) => ({
@@ -62,7 +70,7 @@ function BodyweightSection() {
     kg: b.kg,
   }))
   const latest = sorted[sorted.length - 1]
-  const delta = latest ? latest.kg - settings.startingWeight : 0
+  const delta = latest ? latest.kg - startingWeight : 0
 
   function logToday() {
     const kg = parseFloat(kgInput)
@@ -80,7 +88,7 @@ function BodyweightSection() {
       <div className="flex gap-3">
         <GlassCard glow="#00E5FF" className="flex-1 p-4">
           <p className="text-white/40 text-xs uppercase tracking-wider">Current</p>
-          <p className="text-2xl font-black text-white mt-1">{latest?.kg ?? settings.startingWeight}<span className="text-white/40 text-sm ml-1">kg</span></p>
+          <p className="text-2xl font-black text-white mt-1">{latest?.kg ?? startingWeight}<span className="text-white/40 text-sm ml-1">kg</span></p>
         </GlassCard>
         <GlassCard glow={delta >= 0 ? '#C6FF3D' : '#FF2D87'} className="flex-1 p-4">
           <p className="text-white/40 text-xs uppercase tracking-wider">vs Start</p>
@@ -131,11 +139,12 @@ function BodyweightSection() {
 }
 
 function LiftSection({ lift }: { lift: Lift }) {
-  const { liftSets, addLiftSet, removeLiftSet } = useStore()
+  const { liftSets: liftSetsRaw, addLiftSet, removeLiftSet } = useStore()
   const [weight, setWeight] = useState('')
   const [reps, setReps] = useState('')
   const [rpe, setRpe] = useState('')
 
+  const liftSets = Array.isArray(liftSetsRaw) ? liftSetsRaw : []
   const liftSetsForThis = liftSets.filter((s) => s.liftId === lift.id)
   const pr = getPR(liftSetsForThis)
   const color = lift.unit === 'bw' ? '#C6FF3D' : '#FF2D87'
@@ -238,7 +247,9 @@ function LiftSection({ lift }: { lift: Lift }) {
 }
 
 function PRsSection() {
-  const { lifts, liftSets } = useStore()
+  const { lifts: liftsRaw, liftSets: liftSetsRaw } = useStore()
+  const lifts = Array.isArray(liftsRaw) ? liftsRaw : []
+  const liftSets = Array.isArray(liftSetsRaw) ? liftSetsRaw : []
 
   return (
     <div className="space-y-3">
@@ -268,12 +279,13 @@ function PRsSection() {
 }
 
 export default function FitnessPage() {
-  const { lifts, addLift } = useStore()
+  const { lifts: liftsRaw, addLift } = useStore()
   const [tab, setTab] = useState<Tab>('Overview')
   const [addLiftOpen, setAddLiftOpen] = useState(false)
   const [newLiftName, setNewLiftName] = useState('')
   const [newLiftUnit, setNewLiftUnit] = useState<'kg' | 'reps' | 'bw'>('kg')
 
+  const lifts = Array.isArray(liftsRaw) ? liftsRaw : []
   const activeLifts = lifts.filter((l) => l.active)
 
   function handleAddLift() {

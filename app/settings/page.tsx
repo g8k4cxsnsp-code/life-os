@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Goal, Weekday } from '@/types'
+import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 import { WEEKDAY_NAMES } from '@/lib/schedule'
 import type { WorkoutType } from '@/types'
 
@@ -170,7 +171,7 @@ function ProfileTab() {
 // ── Targets tab ────────────────────────────────────────────────────────────
 function TargetsTab() {
   const { settings, updateSettings } = useStore()
-  const t = settings.targets
+  const t = settings?.targets ?? DEFAULT_SETTINGS.targets
 
   function update(patch: Partial<typeof t>) {
     updateSettings({ targets: { ...t, ...patch } })
@@ -202,14 +203,16 @@ function ScheduleTab() {
     rest: '#7A5CFF',
   }
 
+  const schedule = settings?.schedule ?? DEFAULT_SETTINGS.schedule
+
   function setDay(day: Weekday, type: WorkoutType) {
-    updateSettings({ schedule: { ...settings.schedule, [day]: type } })
+    updateSettings({ schedule: { ...schedule, [day]: type } })
   }
 
   return (
     <div className="space-y-2">
       {WEEKDAY_NAMES.map((day) => {
-        const current = settings.schedule[day]
+        const current = schedule[day]
         return (
           <GlassCard key={day} className="p-3">
             <div className="flex items-center gap-3 flex-wrap">

@@ -5,7 +5,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type {
   AppStore, Goal, WeeklyGoal, DayLog, WeeklyLog,
   Lift, LiftSet, BodyweightEntry, MealEntry, FoodItem,
-  UserSettings
+  UserSettings, CategoryId, Weekday, WorkoutType, FoodUnit, UserTargets,
 } from '@/types'
 import { DEFAULT_GOALS, DEFAULT_LIFTS, DEFAULT_SETTINGS, DEFAULT_WEEKLY_GOALS } from './defaults'
 import { toLocalDateString } from '@/lib/date'
@@ -78,6 +78,263 @@ function ensureDayLog(history: Record<string, DayLog>, date: string): DayLog {
 
 function ensureWeeklyLog(weeklyHistory: Record<string, WeeklyLog>, weekStart: string): WeeklyLog {
   return weeklyHistory[weekStart] ?? { weekStart, completed: {} }
+}
+
+// ── Persisted-state sanitization ──────────────────────────────────────────
+// Defensive validators that turn ANY incoming JSON into a known-good shape
+// or drop it. We never trust localStorage; older deploys may have written
+// values with the wrong types or shapes.
+
+const WEEKDAY_SET = new Set<Weekday>([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+])
+const WORKOUT_SET = new Set<WorkoutType>(['calisthenics', 'weights', 'optional-cardio', 'rest'])
+const CATEGORY_SET = new Set<CategoryId>(['discipline', 'fitness', 'faith', 'business', 'recovery', 'custom'])
+const FOOD_UNIT_SET = new Set<FoodUnit>(['g', 'kg', 'ml', 'l', 'cup', 'tbsp', 'tsp', 'oz', 'slice', 'piece', 'item', 'serving'])
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v)
+const str = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback)
+const num = (v: unknown, fallback: number): number =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fallback
+const optNum = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined
+const optStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback)
+
+function sanitizeGoal(input: unknown, fallbackOrder: number): Goal | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const title = optStr(input.title)
+  if (!id || !title) return null
+  const category = CATEGORY_SET.has(input.category as CategoryId) ? (input.category as CategoryId) : 'custom'
+  const cadence: 'daily' | 'weekly' = input.cadence === 'weekly' ? 'weekly' : 'daily'
+  const schedule = Array.isArray(input.schedule)
+    ? (input.schedule.filter((d): d is Weekday => typeof d === 'string' && WEEKDAY_SET.has(d as Weekday)))
+    : undefined
+  return {
+    id,
+    title,
+    category,
+    color: str(input.color, '#FF2D87'),
+    cadence,
+    schedule,
+    targetValue: optNum(input.targetValue),
+    unit: optStr(input.unit),
+    active: bool(input.active, true),
+    createdAt: str(input.createdAt, new Date().toISOString()),
+    order: num(input.order, fallbackOrder),
+  }
+}
+
+function sanitizeWeeklyGoal(input: unknown): WeeklyGoal | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const title = optStr(input.title)
+  if (!id || !title) return null
+  return {
+    id,
+    title,
+    color: str(input.color, '#FF2D87'),
+    targetCount: Math.max(1, num(input.targetCount, 1)),
+    active: bool(input.active, true),
+    createdAt: str(input.createdAt, new Date().toISOString()),
+  }
+}
+
+function sanitizeLift(input: unknown): Lift | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const name = optStr(input.name)
+  if (!id || !name) return null
+  const unit: Lift['unit'] =
+    input.unit === 'reps' || input.unit === 'bw' ? input.unit : 'kg'
+  const validCats: Lift['category'][] = ['barbell', 'bodyweight', 'dumbbell', 'machine', 'cardio']
+  const category: Lift['category'] = (validCats as string[]).includes(input.category as string)
+    ? (input.category as Lift['category'])
+    : 'barbell'
+  return {
+    id, name, unit, category,
+    active: bool(input.active, true),
+    createdAt: str(input.createdAt, new Date().toISOString()),
+  }
+}
+
+function sanitizeLiftSet(input: unknown): LiftSet | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const liftId = optStr(input.liftId)
+  const date = optStr(input.date)
+  const reps = optNum(input.reps)
+  if (!id || !liftId || !date || reps === undefined) return null
+  return {
+    id, liftId, date, reps,
+    weight: optNum(input.weight),
+    rpe: optNum(input.rpe),
+  }
+}
+
+function sanitizeBodyweight(input: unknown): BodyweightEntry | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const date = optStr(input.date)
+  const kg = optNum(input.kg)
+  if (!id || !date || kg === undefined) return null
+  return { id, date, kg }
+}
+
+function sanitizeMeal(input: unknown): MealEntry | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const date = optStr(input.date)
+  if (!id || !date) return null
+  const unit: FoodUnit = FOOD_UNIT_SET.has(input.unit as FoodUnit) ? (input.unit as FoodUnit) : 'g'
+  return {
+    id, date, unit,
+    foodId: optStr(input.foodId),
+    freeText: optStr(input.freeText),
+    qty: num(input.qty, 0),
+    kcal: num(input.kcal, 0),
+    protein: num(input.protein, 0),
+    carbs: num(input.carbs, 0),
+    fat: num(input.fat, 0),
+    addedAt: str(input.addedAt, new Date().toISOString()),
+  }
+}
+
+function sanitizeFood(input: unknown): FoodItem | null {
+  if (!isObj(input)) return null
+  const id = optStr(input.id)
+  const name = optStr(input.name)
+  if (!id || !name) return null
+  const per: FoodItem['per'] =
+    input.per === '100g' || input.per === '100ml' || input.per === 'item' ? input.per : 'item'
+  return {
+    id, name, per,
+    aliases: Array.isArray(input.aliases) ? input.aliases.filter((a): a is string => typeof a === 'string') : [],
+    kcal: num(input.kcal, 0),
+    protein: num(input.protein, 0),
+    carbs: num(input.carbs, 0),
+    fat: num(input.fat, 0),
+    defaultQty: optNum(input.defaultQty),
+    custom: bool(input.custom, true),
+  }
+}
+
+function sanitizeDayLog(input: unknown): DayLog | null {
+  if (!isObj(input)) return null
+  const date = optStr(input.date)
+  if (!date) return null
+  const completedIn = isObj(input.completed) ? input.completed : {}
+  const completed: Record<string, boolean | number> = {}
+  for (const [k, v] of Object.entries(completedIn)) {
+    if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) {
+      completed[k] = v
+    }
+  }
+  return {
+    date,
+    completed,
+    notes: optStr(input.notes),
+    waterL: optNum(input.waterL),
+    sleepH: optNum(input.sleepH),
+    steps: optNum(input.steps),
+    kcal: optNum(input.kcal),
+  }
+}
+
+function sanitizeWeeklyLog(input: unknown): WeeklyLog | null {
+  if (!isObj(input)) return null
+  const weekStart = optStr(input.weekStart)
+  if (!weekStart) return null
+  const completedIn = isObj(input.completed) ? input.completed : {}
+  const completed: Record<string, number> = {}
+  for (const [k, v] of Object.entries(completedIn)) {
+    if (typeof v === 'number' && Number.isFinite(v)) completed[k] = v
+  }
+  return { weekStart, completed }
+}
+
+function sanitizeTargets(input: unknown, fallback: UserTargets): UserTargets {
+  const x = isObj(input) ? input : {}
+  return {
+    kcal: num(x.kcal, fallback.kcal),
+    protein: num(x.protein, fallback.protein),
+    carbs: num(x.carbs, fallback.carbs),
+    fat: num(x.fat, fallback.fat),
+    waterL: num(x.waterL, fallback.waterL),
+    steps: num(x.steps, fallback.steps),
+    sleepH: num(x.sleepH, fallback.sleepH),
+  }
+}
+
+function sanitizeSchedule(input: unknown, fallback: Record<Weekday, WorkoutType>): Record<Weekday, WorkoutType> {
+  const x = isObj(input) ? input : {}
+  const out = { ...fallback }
+  for (const day of WEEKDAY_SET) {
+    const v = x[day]
+    if (typeof v === 'string' && WORKOUT_SET.has(v as WorkoutType)) {
+      out[day] = v as WorkoutType
+    }
+  }
+  return out
+}
+
+function sanitizeSettings(input: unknown, fallback: UserSettings): UserSettings {
+  const x = isObj(input) ? input : {}
+  return {
+    name: str(x.name, fallback.name),
+    wakeTime: str(x.wakeTime, fallback.wakeTime),
+    height: num(x.height, fallback.height),
+    startingWeight: num(x.startingWeight, fallback.startingWeight),
+    schedule: sanitizeSchedule(x.schedule, fallback.schedule),
+    targets: sanitizeTargets(x.targets, fallback.targets),
+    timerSound: bool(x.timerSound, fallback.timerSound),
+    timerVibration: bool(x.timerVibration, fallback.timerVibration),
+    reducedMotion: bool(x.reducedMotion, fallback.reducedMotion),
+  }
+}
+
+function sanitizeArray<T>(input: unknown, fallback: T[], one: (v: unknown, i: number) => T | null): T[] {
+  if (!Array.isArray(input)) return fallback
+  const out: T[] = []
+  for (let i = 0; i < input.length; i++) {
+    const v = one(input[i], i)
+    if (v) out.push(v)
+  }
+  return out
+}
+
+function sanitizeRecord<T>(input: unknown, one: (v: unknown) => T | null): Record<string, T> {
+  if (!isObj(input)) return {}
+  const out: Record<string, T> = {}
+  for (const [k, v] of Object.entries(input)) {
+    const sanitized = one(v)
+    if (sanitized) out[k] = sanitized
+  }
+  return out
+}
+
+function sanitizeMerge(persisted: unknown, current: FullStore): FullStore {
+  try {
+    const p = isObj(persisted) ? persisted : {}
+    return {
+      ...current,
+      version: 2,
+      settings: sanitizeSettings(p.settings, current.settings),
+      goals: sanitizeArray(p.goals, current.goals, (v, i) => sanitizeGoal(v, i)),
+      weeklyGoals: sanitizeArray(p.weeklyGoals, current.weeklyGoals, sanitizeWeeklyGoal),
+      lifts: sanitizeArray(p.lifts, current.lifts, sanitizeLift),
+      liftSets: sanitizeArray(p.liftSets, current.liftSets, sanitizeLiftSet),
+      bodyweight: sanitizeArray(p.bodyweight, current.bodyweight, sanitizeBodyweight),
+      meals: sanitizeArray(p.meals, current.meals, sanitizeMeal),
+      customFoods: sanitizeArray(p.customFoods, current.customFoods, sanitizeFood),
+      history: sanitizeRecord(p.history, sanitizeDayLog),
+      weeklyHistory: sanitizeRecord(p.weeklyHistory, sanitizeWeeklyLog),
+    }
+  } catch {
+    return current
+  }
 }
 
 export const useStore = create<FullStore>()(
@@ -219,52 +476,22 @@ export const useStore = create<FullStore>()(
         if (typeof window === 'undefined') return { getItem: () => null, setItem: () => {}, removeItem: () => {} }
         return localStorage
       }),
-      version: 1,
-      // Don't hydrate during SSR — we trigger rehydrate from a client component after mount.
+      // v2 introduces strict item sanitization in `merge`. Anything older is
+      // discarded entirely — we'd rather start the user clean than carry
+      // shape bugs forward. The app launched this week, so no real data is
+      // at risk.
+      version: 2,
       skipHydration: true,
-      migrate: (persistedState: unknown) => {
-        // Schema is reconciled in `merge` below; this is just a passthrough.
+      migrate: (persistedState: unknown, fromVersion: number) => {
+        if (fromVersion < 2 || !persistedState || typeof persistedState !== 'object') {
+          return INITIAL_STATE as FullStore
+        }
         return persistedState as FullStore
       },
-      // Deep-merge persisted state into the current default state so older
-      // payloads from previous deploys can never leave nested fields the
-      // wrong shape. We *validate* every slice (not just check for
-      // presence) — if anything isn't the expected array/object, we fall
-      // back to defaults. This is what makes the app survive a stale
-      // localStorage payload from a totally different schema.
-      merge: (persisted, current) => {
-        try {
-          const p = (persisted ?? {}) as Partial<AppStore>
-          const ps = (p.settings && typeof p.settings === 'object' ? p.settings : {}) as Partial<UserSettings>
-          const arr = <T,>(v: unknown, fallback: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fallback)
-          const obj = <T,>(v: unknown, fallback: T): T =>
-            v && typeof v === 'object' && !Array.isArray(v) ? ({ ...fallback, ...(v as object) } as T) : fallback
-
-          return {
-            ...current,
-            settings: {
-              ...current.settings,
-              ...ps,
-              name: typeof ps.name === 'string' ? ps.name : current.settings.name,
-              targets: obj(ps.targets, current.settings.targets),
-              schedule: obj(ps.schedule, current.settings.schedule),
-            },
-            goals: arr(p.goals, current.goals),
-            weeklyGoals: arr(p.weeklyGoals, current.weeklyGoals),
-            lifts: arr(p.lifts, current.lifts),
-            history: obj(p.history, current.history),
-            weeklyHistory: obj(p.weeklyHistory, current.weeklyHistory),
-            liftSets: arr(p.liftSets, current.liftSets),
-            bodyweight: arr(p.bodyweight, current.bodyweight),
-            meals: arr(p.meals, current.meals),
-            customFoods: arr(p.customFoods, current.customFoods),
-            version: typeof p.version === 'number' ? p.version : current.version,
-          } as FullStore
-        } catch {
-          // Any unexpected shape → start clean.
-          return current
-        }
-      },
+      // Deep, item-level sanitization. Every persisted value is validated
+      // and coerced to a safe shape — malformed items are filtered out
+      // rather than passed through to component code where they'd crash.
+      merge: (persisted, current) => sanitizeMerge(persisted, current),
     }
   )
 )

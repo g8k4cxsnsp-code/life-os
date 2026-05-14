@@ -2,7 +2,7 @@
 
 import { SidebarNav } from './SidebarNav'
 import { BottomNav } from './BottomNav'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 import { useStore } from '@/lib/store'
@@ -35,20 +35,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarNav />
       </div>
 
-      {/* Main content */}
+      {/* Main content — simple per-route fade-in. Dropping AnimatePresence
+          here because the exit animation can leave content pinned at
+          opacity:0 under React 19 + rapid route changes during recovery. */}
       <main className="lg:pl-[240px] min-h-dvh pb-[68px] lg:pb-0">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.24, ease: 'easeOut' }}
-            className="min-h-dvh"
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="min-h-dvh"
+        >
+          {children}
+        </motion.div>
       </main>
 
       {/* Mobile bottom nav */}

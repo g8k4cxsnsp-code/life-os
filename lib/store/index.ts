@@ -220,9 +220,38 @@ export const useStore = create<FullStore>()(
         return localStorage
       }),
       version: 1,
-      migrate: (persistedState: unknown, version: number) => {
-        // Future migrations go here
+      // Don't hydrate during SSR — we trigger rehydrate from a client component after mount.
+      skipHydration: true,
+      migrate: (persistedState: unknown) => {
+        // Schema is reconciled in `merge` below; this is just a passthrough.
         return persistedState as FullStore
+      },
+      // Deep-merge persisted state into the current default state so older
+      // payloads from previous deploys never leave nested fields undefined
+      // (e.g. settings.targets, settings.schedule).
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<AppStore>
+        const ps = (p.settings ?? {}) as Partial<UserSettings>
+        return {
+          ...current,
+          ...p,
+          settings: {
+            ...current.settings,
+            ...ps,
+            targets: { ...current.settings.targets, ...(ps.targets ?? {}) },
+            schedule: { ...current.settings.schedule, ...(ps.schedule ?? {}) },
+          },
+          // Arrays/maps fall back to defaults if absent.
+          goals: p.goals ?? current.goals,
+          weeklyGoals: p.weeklyGoals ?? current.weeklyGoals,
+          lifts: p.lifts ?? current.lifts,
+          history: p.history ?? current.history,
+          weeklyHistory: p.weeklyHistory ?? current.weeklyHistory,
+          liftSets: p.liftSets ?? current.liftSets,
+          bodyweight: p.bodyweight ?? current.bodyweight,
+          meals: p.meals ?? current.meals,
+          customFoods: p.customFoods ?? current.customFoods,
+        } as FullStore
       },
     }
   )

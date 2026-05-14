@@ -11,6 +11,8 @@ import { QuoteCard } from '@/components/dashboard/QuoteCard'
 import { GoalCard } from '@/components/goals/GoalCard'
 import { RecoveryDay } from '@/components/goals/RecoveryDay'
 import { sumMacros } from '@/lib/nutrition/calc'
+import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
+import { useMounted } from '@/lib/useMounted'
 
 const container = {
   hidden: {},
@@ -23,12 +25,20 @@ const item = {
 }
 
 export default function DashboardPage() {
-  const { settings, history, goals, liftSets, meals, toggleGoal } = useStore()
+  const mounted = useMounted()
+  const { settings, history, goals, meals, toggleGoal } = useStore()
+
+  // Safe accessors — if a stale persisted payload ever bypasses our `merge`,
+  // we still won't crash on `targets.kcal` / `schedule[weekday]`.
+  const targets = settings?.targets ?? DEFAULT_SETTINGS.targets
+  const schedule = settings?.schedule ?? DEFAULT_SETTINGS.schedule
+  const name = settings?.name ?? DEFAULT_SETTINGS.name
+
   const today = toLocalDateString(new Date())
   const todayLog = useTodayLog()
   const todayGoals = useTodayGoals()
   const weekday = getTodayWeekday()
-  const isRestDay = weekday === 'sunday'
+  const isRestDay = mounted && weekday === 'sunday'
 
   const streak = getCurrentStreak(history, goals, settings)
   const weeklyPct = getWeeklyCompletionPercent(history, goals, settings)
@@ -40,12 +50,16 @@ export default function DashboardPage() {
   const { kcal } = sumMacros(todayMeals)
   const waterL = todayLog.waterL ?? 0
 
-  const greeting = getTimeGreeting(settings.name)
-  const workoutType = settings.schedule[weekday]
+  // Time-of-day greeting + locale date depend on the user's clock & timezone,
+  // so only compute them after mount — otherwise SSR (UTC) and CSR disagree
+  // and Next 15 can throw a hydration error.
+  const greeting = mounted ? getTimeGreeting(name) : `Hello, ${name}.`
+  const workoutType = schedule[weekday] ?? 'rest'
   const workoutLabel = `Complete ${getWorkoutLabel(workoutType)}`
 
-  const now = new Date()
-  const dateLabel = now.toLocaleDateString('en-ZA', { weekday: 'long', month: 'long', day: 'numeric' })
+  const dateLabel = mounted
+    ? new Date().toLocaleDateString('en-ZA', { weekday: 'long', month: 'long', day: 'numeric' })
+    : ''
 
   return (
     <div className="relative min-h-dvh px-4 py-8 lg:px-8 max-w-2xl mx-auto">
@@ -119,18 +133,18 @@ export default function DashboardPage() {
                 <StatCard
                   label="Calories"
                   value={kcal}
-                  unit={`/ ${settings.targets.kcal}`}
+                  unit={`/ ${targets.kcal}`}
                   color="#C026FF"
                   icon="🍽️"
-                  progress={(kcal / settings.targets.kcal) * 100}
+                  progress={(kcal / targets.kcal) * 100}
                 />
                 <StatCard
                   label="Water"
                   value={waterL.toFixed(1)}
-                  unit={`/ ${settings.targets.waterL}L`}
+                  unit={`/ ${targets.waterL}L`}
                   color="#00E5FF"
                   icon="💧"
-                  progress={(waterL / settings.targets.waterL) * 100}
+                  progress={(waterL / targets.waterL) * 100}
                 />
               </div>
             </motion.div>

@@ -4,9 +4,18 @@ import { SidebarNav } from './SidebarNav'
 import { BottomNav } from './BottomNav'
 import { AnimatePresence, motion } from 'framer-motion'
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
+import { useStore } from '@/lib/store'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+
+  // We persist with `skipHydration: true` so SSR markup is stable. Rehydrate
+  // from localStorage after mount; any read error is swallowed so a corrupted
+  // payload can never break the app — defaults are used instead.
+  useEffect(() => {
+    useStore.persist.rehydrate()?.catch?.(() => {})
+  }, [])
 
   return (
     <div className="min-h-dvh">

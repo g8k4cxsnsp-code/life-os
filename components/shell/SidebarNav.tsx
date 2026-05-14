@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Target, Calendar, Dumbbell,
-  UtensilsCrossed, Timer, Settings, Zap
+  UtensilsCrossed, Timer, Settings, Zap, Moon, TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useStore } from '@/lib/store'
@@ -13,10 +13,12 @@ import { getCurrentStreak } from '@/lib/streaks'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/progress', label: 'Progress', icon: TrendingUp },
   { href: '/weekly', label: 'Weekly', icon: Target },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/fitness', label: 'Fitness', icon: Dumbbell },
   { href: '/nutrition', label: 'Nutrition', icon: UtensilsCrossed },
+  { href: '/sleep', label: 'Sleep', icon: Moon },
   { href: '/timer', label: 'Timer', icon: Timer },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

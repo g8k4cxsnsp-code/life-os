@@ -100,6 +100,8 @@ export const FOODS_DB: FoodItem[] = [
   { id: 'rice-chicken', name: 'Rice & Chicken', aliases: ['chicken and rice'], per: 'item', kcal: 395, protein: 35, carbs: 45, fat: 5, defaultQty: 300 },
 ]
 
+import { COMPOSITE_FOODS } from './composite-foods'
+
 export function getAllFoods(customFoods: FoodItem[]): FoodItem[] {
-  return [...FOODS_DB, ...customFoods]
+  return [...FOODS_DB, ...COMPOSITE_FOODS, ...customFoods]
 }

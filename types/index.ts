@@ -40,6 +40,7 @@ export interface DayLog {
   notes?: string
   waterL?: number
   sleepH?: number
+  sleepRating?: number        // 0–100, subjective quality of last night's sleep
   steps?: number
   kcal?: number
 }

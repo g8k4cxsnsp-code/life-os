@@ -239,6 +239,7 @@ function sanitizeDayLog(input: unknown): DayLog | null {
     notes: optStr(input.notes),
     waterL: optNum(input.waterL),
     sleepH: optNum(input.sleepH),
+    sleepRating: optNum(input.sleepRating),
     steps: optNum(input.steps),
     kcal: optNum(input.kcal),
   }

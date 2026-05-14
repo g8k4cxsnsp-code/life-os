@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, useTodayMeals } from '@/lib/store'
-import { parseNutritionInput } from '@/lib/nutrition/parser'
+import { parseNutritionInput, searchFoods, computeMacrosFor } from '@/lib/nutrition/parser'
 import { sumMacros, getMacroPercent, formatMacro } from '@/lib/nutrition/calc'
 import { toLocalDateString } from '@/lib/date'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -148,6 +148,40 @@ export default function NutritionPage() {
   const [input, setInput] = useState('')
   const [parsed, setParsed] = useState<ParsedFoodChunk[]>([])
   const [teachQuery, setTeachQuery] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<FoodItem | null>(null)
+  const [selectedQty, setSelectedQty] = useState<string>('1')
+
+  const searchResults = search.trim().length > 0 ? searchFoods(search, customFoods, 12) : []
+
+  function pickFood(food: FoodItem) {
+    setSelected(food)
+    setSelectedQty(food.per === 'item' ? '1' : '100')
+    setSearch('')
+  }
+
+  function addSelected() {
+    if (!selected) return
+    const qty = parseFloat(selectedQty)
+    if (!qty || qty <= 0) return
+    const unit: 'item' | 'g' | 'ml' = selected.per === 'item' ? 'item' : selected.per === '100ml' ? 'ml' : 'g'
+    const macros = computeMacrosFor(qty, unit, selected)
+    const entry: MealEntry = {
+      id: `meal-${Date.now()}-${Math.random()}`,
+      date: today,
+      foodId: selected.id,
+      qty,
+      unit,
+      kcal: macros.kcal,
+      protein: macros.protein,
+      carbs: macros.carbs,
+      fat: macros.fat,
+      addedAt: new Date().toISOString(),
+    }
+    addMealEntry(entry)
+    setSelected(null)
+    setSelectedQty('1')
+  }
 
   function handleParse() {
     if (!input.trim()) return
@@ -234,9 +268,90 @@ export default function NutritionPage() {
           </div>
         </GlassCard>
 
+        {/* Search foods (MFP-style autocomplete) */}
+        <GlassCard glow="#C6FF3D" className="p-4 space-y-3">
+          <p className="text-white/40 text-xs uppercase tracking-wider">Search Foods</p>
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="e.g. chicken mayo sandwich, big mac…"
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-4 py-2.5 text-white placeholder-white/20 text-sm focus:outline-none focus:border-[#C6FF3D]/40 transition-all"
+            />
+          </div>
+
+          <AnimatePresence>
+            {searchResults.length > 0 && !selected && (
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                {searchResults.map(({ food, confidence }) => (
+                  <button
+                    key={food.id}
+                    onClick={() => pickFood(food)}
+                    className="w-full text-left flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{food.name}</p>
+                      <p className="text-white/40 text-xs mt-0.5">
+                        {Math.round(food.kcal)} kcal {food.per === 'item' ? '/ serving' : `/ ${food.per === '100ml' ? '100ml' : '100g'}`}
+                        {' · '}P {food.protein}g · C {food.carbs}g · F {food.fat}g
+                      </p>
+                    </div>
+                    <span className="text-white/20 text-xs">{Math.round(confidence * 100)}%</span>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {selected && (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="rounded-xl p-3 space-y-3" style={{ border: '1px solid rgba(198,255,61,0.2)', background: 'rgba(198,255,61,0.05)' }}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="text-white font-medium">{selected.name}</p>
+                    <p className="text-white/40 text-xs mt-0.5">
+                      {selected.per === 'item' ? `${selected.kcal} kcal / serving` : `${selected.kcal} kcal / ${selected.per === '100ml' ? '100ml' : '100g'}`}
+                    </p>
+                  </div>
+                  <button onClick={() => setSelected(null)} className="text-white/30 hover:text-white text-sm">×</button>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-white/30 text-[10px] uppercase tracking-wider">
+                      {selected.per === 'item' ? 'Servings' : selected.per === '100ml' ? 'ml' : 'grams'}
+                    </label>
+                    <input
+                      type="number"
+                      value={selectedQty}
+                      onChange={(e) => setSelectedQty(e.target.value)}
+                      step={selected.per === 'item' ? '0.5' : '10'}
+                      min="0"
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#C6FF3D]/40"
+                    />
+                  </div>
+                  <NeonButton color="#C6FF3D" onClick={addSelected}>
+                    <Plus className="w-4 h-4" /> Add
+                  </NeonButton>
+                </div>
+                {(() => {
+                  const qty = parseFloat(selectedQty) || 0
+                  const unit: 'item' | 'g' | 'ml' = selected.per === 'item' ? 'item' : selected.per === '100ml' ? 'ml' : 'g'
+                  const m = computeMacrosFor(qty, unit, selected)
+                  return (
+                    <p className="text-white/50 text-xs">
+                      = {m.kcal} kcal · P {m.protein}g · C {m.carbs}g · F {m.fat}g
+                    </p>
+                  )
+                })()}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </GlassCard>
+
         {/* Quick add */}
         <GlassCard glow="#00E5FF" className="p-4 space-y-3">
-          <p className="text-white/40 text-xs uppercase tracking-wider">Add Food</p>
+          <p className="text-white/40 text-xs uppercase tracking-wider">Free-text Add</p>
           <div className="flex gap-2">
             <textarea
               value={input}

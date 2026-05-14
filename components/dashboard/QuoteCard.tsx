@@ -1,12 +1,14 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { getDailyQuote } from '@/lib/quotes'
 import { Quote } from 'lucide-react'
+import { useMounted } from '@/lib/useMounted'
 
 export function QuoteCard() {
-  const quote = getDailyQuote()
+  const mounted = useMounted()
+  // Quote rotation is date-derived → defer to client to avoid SSR/CSR drift.
+  const quote = mounted ? getDailyQuote() : { text: '', author: '' }
 
   return (
     <GlassCard glow="#C026FF" className="p-5 relative overflow-hidden">

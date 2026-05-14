@@ -11,10 +11,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
   // We persist with `skipHydration: true` so SSR markup is stable. Rehydrate
-  // from localStorage after mount; any read error is swallowed so a corrupted
-  // payload can never break the app — defaults are used instead.
+  // from localStorage after mount. If the stored payload is unreadable or
+  // throws during merge, wipe it and re-render with defaults rather than
+  // leaving the user stuck on a black screen.
   useEffect(() => {
-    useStore.persist.rehydrate()?.catch?.(() => {})
+    const recover = () => {
+      try { localStorage.removeItem('life-os:v1') } catch {}
+    }
+    try {
+      const result = useStore.persist.rehydrate()
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        ;(result as Promise<void>).catch(recover)
+      }
+    } catch {
+      recover()
+    }
   }, [])
 
   return (

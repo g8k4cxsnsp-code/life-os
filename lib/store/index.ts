@@ -227,31 +227,43 @@ export const useStore = create<FullStore>()(
         return persistedState as FullStore
       },
       // Deep-merge persisted state into the current default state so older
-      // payloads from previous deploys never leave nested fields undefined
-      // (e.g. settings.targets, settings.schedule).
+      // payloads from previous deploys can never leave nested fields the
+      // wrong shape. We *validate* every slice (not just check for
+      // presence) — if anything isn't the expected array/object, we fall
+      // back to defaults. This is what makes the app survive a stale
+      // localStorage payload from a totally different schema.
       merge: (persisted, current) => {
-        const p = (persisted ?? {}) as Partial<AppStore>
-        const ps = (p.settings ?? {}) as Partial<UserSettings>
-        return {
-          ...current,
-          ...p,
-          settings: {
-            ...current.settings,
-            ...ps,
-            targets: { ...current.settings.targets, ...(ps.targets ?? {}) },
-            schedule: { ...current.settings.schedule, ...(ps.schedule ?? {}) },
-          },
-          // Arrays/maps fall back to defaults if absent.
-          goals: p.goals ?? current.goals,
-          weeklyGoals: p.weeklyGoals ?? current.weeklyGoals,
-          lifts: p.lifts ?? current.lifts,
-          history: p.history ?? current.history,
-          weeklyHistory: p.weeklyHistory ?? current.weeklyHistory,
-          liftSets: p.liftSets ?? current.liftSets,
-          bodyweight: p.bodyweight ?? current.bodyweight,
-          meals: p.meals ?? current.meals,
-          customFoods: p.customFoods ?? current.customFoods,
-        } as FullStore
+        try {
+          const p = (persisted ?? {}) as Partial<AppStore>
+          const ps = (p.settings && typeof p.settings === 'object' ? p.settings : {}) as Partial<UserSettings>
+          const arr = <T,>(v: unknown, fallback: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fallback)
+          const obj = <T,>(v: unknown, fallback: T): T =>
+            v && typeof v === 'object' && !Array.isArray(v) ? ({ ...fallback, ...(v as object) } as T) : fallback
+
+          return {
+            ...current,
+            settings: {
+              ...current.settings,
+              ...ps,
+              name: typeof ps.name === 'string' ? ps.name : current.settings.name,
+              targets: obj(ps.targets, current.settings.targets),
+              schedule: obj(ps.schedule, current.settings.schedule),
+            },
+            goals: arr(p.goals, current.goals),
+            weeklyGoals: arr(p.weeklyGoals, current.weeklyGoals),
+            lifts: arr(p.lifts, current.lifts),
+            history: obj(p.history, current.history),
+            weeklyHistory: obj(p.weeklyHistory, current.weeklyHistory),
+            liftSets: arr(p.liftSets, current.liftSets),
+            bodyweight: arr(p.bodyweight, current.bodyweight),
+            meals: arr(p.meals, current.meals),
+            customFoods: arr(p.customFoods, current.customFoods),
+            version: typeof p.version === 'number' ? p.version : current.version,
+          } as FullStore
+        } catch {
+          // Any unexpected shape → start clean.
+          return current
+        }
       },
     }
   )

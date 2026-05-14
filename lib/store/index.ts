@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type {
@@ -497,25 +498,43 @@ export const useStore = create<FullStore>()(
 )
 
 // ── Selectors ─────────────────────────────────────────────────────────────
+// IMPORTANT: Zustand subscribes by reference. A selector that returns a new
+// array on every call (e.g. `s.goals.filter(...)`) breaks getSnapshot's
+// stability and triggers React error #185 ("Maximum update depth exceeded")
+// — an infinite re-render loop. So we select the *raw* arrays here and
+// derive in render via useMemo.
 
 export function useTodayLog() {
   const date = toLocalDateString(new Date())
-  return useStore((s) => s.history[date] ?? { date, completed: {} })
-}
-
-export function useTodayGoals() {
-  const today = new Date()
-  const weekday = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() as import('@/types').Weekday
-  return useStore((s) =>
-    s.goals.filter((g) => {
-      if (!g.active || g.cadence !== 'daily') return false
-      if (!g.schedule) return true
-      return g.schedule.includes(weekday)
-    }).sort((a, b) => a.order - b.order)
+  const history = useStore((s) => s.history)
+  return useMemo(
+    () => history[date] ?? { date, completed: {} },
+    [history, date],
   )
 }
 
+export function useTodayGoals() {
+  const goals = useStore((s) => s.goals)
+  const weekday = new Date()
+    .toLocaleDateString('en-US', { weekday: 'long' })
+    .toLowerCase() as Weekday
+  return useMemo(() => {
+    if (!Array.isArray(goals)) return []
+    return goals
+      .filter((g) => {
+        if (!g || !g.active || g.cadence !== 'daily') return false
+        if (!Array.isArray(g.schedule)) return true
+        return g.schedule.includes(weekday)
+      })
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  }, [goals, weekday])
+}
+
 export function useTodayMeals() {
+  const meals = useStore((s) => s.meals)
   const date = toLocalDateString(new Date())
-  return useStore((s) => s.meals.filter((m) => m.date === date))
+  return useMemo(() => {
+    if (!Array.isArray(meals)) return []
+    return meals.filter((m) => m && m.date === date)
+  }, [meals, date])
 }

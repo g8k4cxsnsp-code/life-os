@@ -2,7 +2,6 @@
 
 import { motion } from 'framer-motion'
 import { GlassCard } from '@/components/ui/GlassCard'
-import { cn } from '@/lib/cn'
 
 interface StatCardProps {
   label: string
@@ -12,9 +11,11 @@ interface StatCardProps {
   color: string
   icon?: React.ReactNode
   progress?: number  // 0–100
+  actionLabel?: string
+  onAction?: () => void
 }
 
-export function StatCard({ label, value, unit, subtext, color, icon, progress }: StatCardProps) {
+export function StatCard({ label, value, unit, subtext, color, icon, progress, actionLabel, onAction }: StatCardProps) {
   return (
     <GlassCard glow={color} hover className="p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -41,6 +42,20 @@ export function StatCard({ label, value, unit, subtext, color, icon, progress }:
             transition={{ duration: 0.8, ease: 'easeOut' }}
           />
         </div>
+      )}
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="self-end mt-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors active:scale-95"
+          style={{
+            color,
+            borderColor: `${color}40`,
+            background: `${color}14`,
+          }}
+        >
+          {actionLabel}
+        </button>
       )}
     </GlassCard>
   )

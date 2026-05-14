@@ -523,7 +523,11 @@ export function useTodayGoals() {
     return goals
       .filter((g) => {
         if (!g || !g.active || g.cadence !== 'daily') return false
-        if (!Array.isArray(g.schedule)) return true
+        // Treat missing OR empty schedule as "every day". An empty array can
+        // happen after sanitization drops invalid weekday strings from old
+        // persisted payloads, and silently hiding the goal forever is worse
+        // than showing it daily.
+        if (!Array.isArray(g.schedule) || g.schedule.length === 0) return true
         return g.schedule.includes(weekday)
       })
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))

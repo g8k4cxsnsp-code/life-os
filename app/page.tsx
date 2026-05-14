@@ -26,7 +26,7 @@ const item = {
 
 export default function DashboardPage() {
   const mounted = useMounted()
-  const { settings, history, goals, meals, toggleGoal } = useStore()
+  const { settings, history, goals, meals, toggleGoal, updateDayLog } = useStore()
 
   // Safe accessors — if a stale persisted payload ever bypasses our `merge`,
   // we still won't crash on `targets.kcal` / `schedule[weekday]`.
@@ -44,7 +44,7 @@ export default function DashboardPage() {
   const weeklyPct = getWeeklyCompletionPercent(history, goals, settings)
 
   const completed = todayGoals.filter((g) => !!todayLog.completed[g.id])
-  const progressPct = todayGoals.length === 0 ? 100 : Math.round((completed.length / todayGoals.length) * 100)
+  const progressPct = todayGoals.length === 0 ? 0 : Math.round((completed.length / todayGoals.length) * 100)
 
   const todayMeals = meals.filter((m) => m.date === today)
   const { kcal } = sumMacros(todayMeals)
@@ -140,11 +140,21 @@ export default function DashboardPage() {
                 />
                 <StatCard
                   label="Water"
-                  value={waterL.toFixed(1)}
+                  value={waterL.toFixed(2)}
                   unit={`/ ${targets.waterL}L`}
                   color="#00E5FF"
                   icon="💧"
                   progress={(waterL / targets.waterL) * 100}
+                  actionLabel="+ Glass"
+                  onAction={() => {
+                    // Read the freshest waterL straight from the store —
+                    // closing over `todayLog` would make rapid taps overwrite
+                    // each other with the same stale base value.
+                    const current = useStore.getState().history[today]?.waterL ?? 0
+                    updateDayLog(today, {
+                      waterL: Math.round((current + 0.25) * 100) / 100,
+                    })
+                  }}
                 />
               </div>
             </motion.div>

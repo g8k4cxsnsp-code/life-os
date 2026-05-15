@@ -6,6 +6,8 @@ import { motion } from 'framer-motion'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 import { useStore } from '@/lib/store'
+import { Toaster } from 'sonner'
+import { SuggestionEngine } from '@/components/SuggestionEngine'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -54,6 +56,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="lg:hidden">
         <BottomNav />
       </div>
+
+      <Toaster position="top-center" />
+      <SuggestionEngine />
     </div>
   )
 }

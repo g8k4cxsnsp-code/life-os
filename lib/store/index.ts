@@ -6,8 +6,9 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type {
   AppStore, Goal, WeeklyGoal, DayLog, WeeklyLog,
   Lift, LiftSet, BodyweightEntry, MealEntry, FoodItem,
-  UserSettings, CategoryId, Weekday, WorkoutType, FoodUnit, UserTargets,
+  UserSettings, CategoryId, Weekday, WorkoutType, FoodUnit, UserTargets, WorkoutDayCategory,
 } from '@/types'
+import { epley1RM } from '@/lib/fitness'
 import { DEFAULT_GOALS, DEFAULT_LIFTS, DEFAULT_SETTINGS, DEFAULT_WEEKLY_GOALS } from './defaults'
 import { toLocalDateString } from '@/lib/date'
 
@@ -38,6 +39,7 @@ interface StoreActions {
   // Fitness
   addLiftSet: (set: LiftSet) => void
   removeLiftSet: (id: string) => void
+  logSets: (liftId: string, date: string, sets: Array<{ weight?: number; reps: number; rpe?: number }>) => void
   addLift: (lift: Lift) => void
   updateLift: (id: string, patch: Partial<Lift>) => void
   removeLift: (id: string) => void
@@ -143,6 +145,20 @@ function sanitizeWeeklyGoal(input: unknown): WeeklyGoal | null {
   }
 }
 
+const DAY_CATEGORY_NAMES: Record<string, WorkoutDayCategory> = {
+  squat: 'legs', deadlift: 'legs', 'leg press': 'legs', lunge: 'legs',
+  'hamstring curl': 'legs', 'calf raise': 'legs',
+  'bench press': 'back-chest', 'barbell row': 'back-chest', 'pull-ups': 'back-chest',
+  'pull-up': 'back-chest', 'incline db press': 'back-chest', 'lat pulldown': 'back-chest',
+  'overhead press': 'shoulders-arms', 'lateral raise': 'shoulders-arms',
+  'barbell curl': 'shoulders-arms', 'tricep pushdown': 'shoulders-arms', 'face pull': 'shoulders-arms',
+}
+
+function inferDayCategory(name: string): WorkoutDayCategory {
+  const key = name.toLowerCase().trim()
+  return DAY_CATEGORY_NAMES[key] ?? 'back-chest'
+}
+
 function sanitizeLift(input: unknown): Lift | null {
   if (!isObj(input)) return null
   const id = optStr(input.id)
@@ -154,8 +170,12 @@ function sanitizeLift(input: unknown): Lift | null {
   const category: Lift['category'] = (validCats as string[]).includes(input.category as string)
     ? (input.category as Lift['category'])
     : 'barbell'
+  const validDayCats: WorkoutDayCategory[] = ['legs', 'back-chest', 'shoulders-arms']
+  const dayCategory: WorkoutDayCategory = validDayCats.includes(input.dayCategory as WorkoutDayCategory)
+    ? (input.dayCategory as WorkoutDayCategory)
+    : inferDayCategory(name)
   return {
-    id, name, unit, category,
+    id, name, unit, category, dayCategory,
     active: bool(input.active, true),
     createdAt: str(input.createdAt, new Date().toISOString()),
   }
@@ -389,7 +409,14 @@ export const useStore = create<FullStore>()(
       reorderGoals: (ids) =>
         set((s) => {
           const map = new Map(s.goals.map((g) => [g.id, g]))
-          return { goals: ids.map((id, i) => ({ ...map.get(id)!, order: i })).filter(Boolean) }
+          const orderedIds = new Set(ids)
+          const ordered = ids
+            .map((id, i) => { const g = map.get(id); return g ? { ...g, order: i } : null })
+            .filter((g): g is Goal => g !== null)
+          const rest = s.goals
+            .filter((g) => !orderedIds.has(g.id))
+            .map((g, i) => ({ ...g, order: ordered.length + i }))
+          return { goals: [...ordered, ...rest] }
         }),
 
       toggleWeeklyGoal: (goalId, weekStart) =>
@@ -435,6 +462,22 @@ export const useStore = create<FullStore>()(
         set((s) => ({ liftSets: [...s.liftSets, liftSet] })),
       removeLiftSet: (id) =>
         set((s) => ({ liftSets: s.liftSets.filter((l) => l.id !== id) })),
+      logSets: (liftId, date, sets) =>
+        set((s) => {
+          const kept = s.liftSets.filter((l) => !(l.liftId === liftId && l.date === date))
+          const now = Date.now()
+          const newSets: LiftSet[] = sets
+            .filter((set) => set.reps > 0)
+            .map((set, i) => ({
+              id: `set-${liftId}-${date}-${i}-${now}`,
+              liftId,
+              date,
+              reps: set.reps,
+              weight: set.weight,
+              rpe: set.rpe,
+            }))
+          return { liftSets: [...kept, ...newSets] }
+        }),
       addLift: (lift) => set((s) => ({ lifts: [...s.lifts, lift] })),
       updateLift: (id, patch) =>
         set((s) => ({
@@ -542,4 +585,54 @@ export function useTodayMeals() {
     if (!Array.isArray(meals)) return []
     return meals.filter((m) => m && m.date === date)
   }, [meals, date])
+}
+
+export function useLiftsByDay(dayCategory: WorkoutDayCategory) {
+  const lifts = useStore((s) => s.lifts)
+  return useMemo(() => {
+    if (!Array.isArray(lifts)) return []
+    return lifts.filter((l) => l && l.active && l.dayCategory === dayCategory)
+  }, [lifts, dayCategory])
+}
+
+export function useLiftProgress(liftId: string) {
+  const liftSets = useStore((s) => s.liftSets)
+  return useMemo(() => {
+    const sets = Array.isArray(liftSets) ? liftSets.filter((s) => s && s.liftId === liftId) : []
+    if (sets.length === 0) return { first: null, lastSession: null, today: [] as LiftSet[], chartData: [] as { date: string; e1rm: number }[] }
+
+    const today = toLocalDateString(new Date())
+    const byDate: Record<string, LiftSet[]> = {}
+    sets.forEach((s) => {
+      if (!byDate[s.date]) byDate[s.date] = []
+      byDate[s.date].push(s)
+    })
+
+    const dates = Object.keys(byDate).sort()
+
+    function bestSet(dateSets: LiftSet[]) {
+      return dateSets.reduce(
+        (best, s) => {
+          const e1rm = epley1RM(s.weight ?? 0, s.reps)
+          return e1rm > best.e1rm ? { weight: s.weight, reps: s.reps, e1rm } : best
+        },
+        { weight: undefined as number | undefined, reps: 0, e1rm: 0 }
+      )
+    }
+
+    const firstDate = dates[0]
+    const first = { date: firstDate, ...bestSet(byDate[firstDate]) }
+
+    const pastDates = dates.filter((d) => d < today)
+    const lastSessionDate = pastDates[pastDates.length - 1] ?? null
+    const lastSession = lastSessionDate
+      ? { date: lastSessionDate, ...bestSet(byDate[lastSessionDate]) }
+      : null
+
+    const todaySets = byDate[today] ?? []
+
+    const chartData = dates.map((d) => ({ date: d, e1rm: Math.round(bestSet(byDate[d]).e1rm) }))
+
+    return { first, lastSession, today: todaySets, chartData }
+  }, [liftSets, liftId])
 }

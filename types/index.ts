@@ -6,6 +6,8 @@ export type CategoryId = 'discipline' | 'fitness' | 'faith' | 'business' | 'reco
 
 export type WorkoutType = 'calisthenics' | 'weights' | 'optional-cardio' | 'rest'
 
+export type WorkoutDayCategory = 'legs' | 'back-chest' | 'shoulders-arms'
+
 export type NeonColor =
   | '#FF2D87'  // pink — discipline
   | '#00E5FF'  // cyan — fitness
@@ -68,6 +70,7 @@ export interface Lift {
   name: string
   unit: 'kg' | 'reps' | 'bw'
   category: 'barbell' | 'bodyweight' | 'dumbbell' | 'machine' | 'cardio'
+  dayCategory: WorkoutDayCategory
   active: boolean
   createdAt: string
 }

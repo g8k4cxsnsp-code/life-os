@@ -1,6 +1,16 @@
 'use client'
 
+import { useId } from 'react'
 import { motion } from 'framer-motion'
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy,
+  useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useStore, useTodayLog, useTodayGoals } from '@/lib/store'
 import { getTodayWeekday, getTimeGreeting, getWorkoutLabel } from '@/lib/schedule'
 import { getCurrentStreak, getWeeklyCompletionPercent } from '@/lib/streaks'
@@ -14,6 +24,39 @@ import { sumMacros } from '@/lib/nutrition/calc'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 import { useMounted } from '@/lib/useMounted'
 
+function SortableGoalCard({
+  goal,
+  completed,
+  onToggle,
+  workoutLabel,
+}: {
+  goal: import('@/types').Goal
+  completed: boolean
+  onToggle: () => void
+  workoutLabel?: string
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: goal.id })
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 10 : undefined,
+        position: isDragging ? 'relative' : undefined,
+      }}
+    >
+      <GoalCard
+        goal={goal}
+        completed={completed}
+        onToggle={onToggle}
+        workoutLabel={workoutLabel}
+        dragHandleProps={{ ...attributes, ...listeners } as React.HTMLAttributes<HTMLButtonElement>}
+      />
+    </div>
+  )
+}
+
 const container = {
   hidden: {},
   show: { transition: { staggerChildren: 0.04 } },
@@ -26,7 +69,24 @@ const item = {
 
 export default function DashboardPage() {
   const mounted = useMounted()
-  const { settings, history, goals, meals, toggleGoal, updateDayLog } = useStore()
+  const dndId = useId()
+  const { settings, history, goals, meals, toggleGoal, updateDayLog, reorderGoals } = useStore()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = todayGoals.map((g) => g.id)
+    const oldIndex = ids.indexOf(active.id as string)
+    const newIndex = ids.indexOf(over.id as string)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      reorderGoals(arrayMove(ids, oldIndex, newIndex))
+    }
+  }
 
   // Safe accessors — if a stale persisted payload ever bypasses our `merge`,
   // we still won't crash on `targets.kcal` / `schedule[weekday]`.
@@ -164,17 +224,21 @@ export default function DashboardPage() {
               <p className="text-white/30 text-xs font-semibold uppercase tracking-widest mb-3">
                 Today&rsquo;s Goals
               </p>
-              <div className="space-y-2.5">
-                {todayGoals.map((goal) => (
-                  <GoalCard
-                    key={goal.id}
-                    goal={goal}
-                    completed={!!todayLog.completed[goal.id]}
-                    onToggle={() => toggleGoal(goal.id, today)}
-                    workoutLabel={goal.id === 'goal-workout' ? workoutLabel : undefined}
-                  />
-                ))}
-              </div>
+              <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={todayGoals.map((g) => g.id)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2.5">
+                    {todayGoals.map((goal) => (
+                      <SortableGoalCard
+                        key={goal.id}
+                        goal={goal}
+                        completed={!!todayLog.completed[goal.id]}
+                        onToggle={() => toggleGoal(goal.id, today)}
+                        workoutLabel={goal.id === 'goal-workout' ? workoutLabel : undefined}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
 
               {todayGoals.length === 0 && (
                 <div className="text-center py-12 text-white/30">

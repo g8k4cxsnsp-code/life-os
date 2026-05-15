@@ -5,20 +5,377 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
-import { useStore } from '@/lib/store'
+import { useStore, useLiftsByDay, useLiftProgress } from '@/lib/store'
 import { epley1RM, getPR } from '@/lib/fitness'
 import { toLocalDateString, formatShortDate } from '@/lib/date'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { NeonButton } from '@/components/ui/NeonButton'
 import { NeonInput } from '@/components/ui/NeonInput'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Plus, Trophy, TrendingUp, Scale, Dumbbell } from 'lucide-react'
+import { Plus, Trophy, TrendingUp, Scale, Dumbbell, X, ChevronRight, BarChart2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import type { Lift } from '@/types'
+import type { Lift, WorkoutDayCategory } from '@/types'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 
-const TABS = ['Overview', 'Log Workout', 'Bodyweight', 'PRs'] as const
+const TABS = ['Workout Split', 'Overview', 'Bodyweight', 'PRs'] as const
 type Tab = typeof TABS[number]
+
+const DAY_LABELS: Record<WorkoutDayCategory, string> = {
+  'legs': 'Legs',
+  'back-chest': 'Back & Chest',
+  'shoulders-arms': 'Shoulders & Arms',
+}
+const DAY_COLORS: Record<WorkoutDayCategory, string> = {
+  'legs': '#C6FF3D',
+  'back-chest': '#FF2D87',
+  'shoulders-arms': '#00E5FF',
+}
+const DAY_ORDER: WorkoutDayCategory[] = ['legs', 'back-chest', 'shoulders-arms']
+
+// ── Progress Modal ─────────────────────────────────────────────────────────
+
+function ProgressModal({ lift, onClose }: { lift: Lift; onClose: () => void }) {
+  const { first, lastSession, today, chartData } = useLiftProgress(lift.id)
+  const color = DAY_COLORS[lift.dayCategory]
+
+  const todayBest = today.length > 0
+    ? today.reduce((b, s) => epley1RM(s.weight ?? 0, s.reps) > b ? epley1RM(s.weight ?? 0, s.reps) : b, 0)
+    : null
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm"
+      >
+        <GlassCard glow={color} className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-white font-black text-lg">{lift.name}</h2>
+            <button onClick={onClose} className="text-white/40 hover:text-white/70 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 gap-3">
+            <GlassCard className="p-3">
+              <p className="text-white/40 text-xs uppercase tracking-wider mb-1">First session</p>
+              {first ? (
+                <>
+                  <p className="text-white font-bold text-sm">
+                    {first.weight ? `${first.weight}kg × ${first.reps}` : `${first.reps} reps`}
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: `${color}80` }}>
+                    {formatShortDate(first.date)} · {Math.round(first.e1rm)}kg e1RM
+                  </p>
+                </>
+              ) : (
+                <p className="text-white/30 text-sm">No data yet</p>
+              )}
+            </GlassCard>
+            <GlassCard className="p-3">
+              <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Last session</p>
+              {lastSession ? (
+                <>
+                  <p className="text-white font-bold text-sm">
+                    {lastSession.weight ? `${lastSession.weight}kg × ${lastSession.reps}` : `${lastSession.reps} reps`}
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: `${color}80` }}>
+                    {formatShortDate(lastSession.date)} · {Math.round(lastSession.e1rm)}kg e1RM
+                  </p>
+                </>
+              ) : (
+                <p className="text-white/30 text-sm">No previous session</p>
+              )}
+            </GlassCard>
+          </div>
+
+          {todayBest !== null && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold"
+              style={{ background: `${color}15`, border: `1px solid ${color}30`, color }}>
+              <TrendingUp className="w-4 h-4" />
+              Today: {Math.round(todayBest)}kg e1RM
+              {lastSession && (
+                <span className="ml-auto text-xs opacity-80">
+                  {todayBest >= lastSession.e1rm ? '+' : ''}{Math.round(todayBest - lastSession.e1rm)}kg
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Chart */}
+          {chartData.length > 1 && (
+            <div>
+              <p className="text-white/40 text-xs uppercase tracking-wider mb-3">e1RM Progress</p>
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={chartData.slice(-20)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.25)' }}
+                    tickFormatter={(d) => formatShortDate(d)} />
+                  <YAxis tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.25)' }} width={32} />
+                  <Tooltip contentStyle={{ background: '#0E0B16', border: `1px solid ${color}40`, borderRadius: '8px', color: '#fff', fontSize: '11px' }}
+                    labelFormatter={(d) => formatShortDate(d as string)} />
+                  <Line type="monotone" dataKey="e1rm" stroke={color} strokeWidth={2} dot={false}
+                    style={{ filter: `drop-shadow(0 0 4px ${color})` }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {chartData.length === 0 && (
+            <p className="text-center text-white/30 text-sm py-4">Log your first set to start tracking progress.</p>
+          )}
+        </GlassCard>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ── Exercise Card ──────────────────────────────────────────────────────────
+
+function ExerciseCard({ lift, dayColor }: { lift: Lift; dayColor: string }) {
+  const { logSets } = useStore()
+  const { lastSession, today, chartData } = useLiftProgress(lift.id)
+  const [modalOpen, setModalOpen] = useState(false)
+  const today_date = toLocalDateString(new Date())
+
+  const defaultSets = (): Array<{ weight: string; reps: string }> => {
+    const base = lastSession
+      ? Array(3).fill({ weight: lastSession.weight?.toString() ?? '', reps: lastSession.reps.toString() })
+      : Array(3).fill({ weight: '', reps: '' })
+    // If already logged today, prefill from today's sets
+    if (today.length > 0) {
+      return Array(3).fill(null).map((_, i) => {
+        const s = today[i]
+        return s ? { weight: s.weight?.toString() ?? '', reps: s.reps.toString() } : base[i]
+      })
+    }
+    return base
+  }
+
+  const [sets, setSets] = useState<Array<{ weight: string; reps: string }>>(defaultSets)
+  const [saved, setSaved] = useState(today.length > 0)
+
+  const alreadyLoggedToday = today.length > 0
+  const todayBestE1RM = alreadyLoggedToday
+    ? today.reduce((b, s) => Math.max(b, epley1RM(s.weight ?? 0, s.reps)), 0)
+    : null
+  const delta = todayBestE1RM !== null && lastSession
+    ? Math.round(todayBestE1RM - lastSession.e1rm)
+    : null
+
+  function handleSave() {
+    const parsed = sets
+      .map((s) => ({
+        weight: lift.unit === 'bw' ? undefined : parseFloat(s.weight),
+        reps: parseInt(s.reps),
+      }))
+      .filter((s) => !isNaN(s.reps) && s.reps > 0)
+    if (parsed.length === 0) return
+    logSets(lift.id, today_date, parsed)
+    setSaved(true)
+  }
+
+  function updateSet(i: number, field: 'weight' | 'reps', value: string) {
+    setSets((prev) => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
+    setSaved(false)
+  }
+
+  return (
+    <>
+      <GlassCard glow={saved ? dayColor : undefined} className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            className="flex items-center gap-2 text-left group"
+            onClick={() => setModalOpen(true)}
+          >
+            <span className="font-bold text-white text-sm group-hover:underline">{lift.name}</span>
+            <BarChart2 className="w-3.5 h-3.5 text-white/30 group-hover:text-white/60 transition-colors" />
+          </button>
+          <div className="flex items-center gap-2">
+            {delta !== null && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                style={{
+                  background: delta >= 0 ? `${dayColor}15` : 'rgba(255,45,45,0.1)',
+                  color: delta >= 0 ? dayColor : '#ff4545',
+                  border: `1px solid ${delta >= 0 ? dayColor : '#ff4545'}30`,
+                }}>
+                {delta >= 0 ? '+' : ''}{delta}kg e1RM
+              </span>
+            )}
+            {!alreadyLoggedToday && lastSession && (
+              <span className="text-xs text-white/25">
+                Last: {lastSession.weight ? `${lastSession.weight}kg×${lastSession.reps}` : `${lastSession.reps}r`}
+              </span>
+            )}
+            {!lastSession && (
+              <span className="text-xs text-white/25">First session!</span>
+            )}
+          </div>
+        </div>
+
+        {/* 3 set inputs */}
+        <div className="space-y-2">
+          {sets.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-white/30 text-xs w-10">Set {i + 1}</span>
+              {lift.unit !== 'bw' && (
+                <NeonInput
+                  value={s.weight}
+                  onChange={(e) => updateSet(i, 'weight', e.target.value)}
+                  placeholder="kg"
+                  type="number"
+                  accentColor={dayColor}
+                  className="w-20"
+                />
+              )}
+              <NeonInput
+                value={s.reps}
+                onChange={(e) => updateSet(i, 'reps', e.target.value)}
+                placeholder="reps"
+                type="number"
+                accentColor={dayColor}
+                className="w-20"
+              />
+            </div>
+          ))}
+        </div>
+
+        <NeonButton
+          color={saved ? dayColor : undefined}
+          size="sm"
+          className="w-full"
+          onClick={handleSave}
+        >
+          {saved ? '✓ Saved' : 'Save Sets'}
+        </NeonButton>
+      </GlassCard>
+
+      <AnimatePresence>
+        {modalOpen && (
+          <ProgressModal lift={lift} onClose={() => setModalOpen(false)} />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+// ── Workout Split Tab ──────────────────────────────────────────────────────
+
+function WorkoutSplitTab() {
+  const { addLift } = useStore()
+  const [selectedDay, setSelectedDay] = useState<WorkoutDayCategory>('legs')
+  const [addOpen, setAddOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newUnit, setNewUnit] = useState<'kg' | 'reps' | 'bw'>('kg')
+
+  const liftsForDay = useLiftsByDay(selectedDay)
+  const color = DAY_COLORS[selectedDay]
+
+  function handleAddExercise() {
+    if (!newName.trim()) return
+    addLift({
+      id: `lift-${Date.now()}`,
+      name: newName.trim(),
+      unit: newUnit,
+      category: newUnit === 'bw' ? 'bodyweight' : 'barbell',
+      dayCategory: selectedDay,
+      active: true,
+      createdAt: new Date().toISOString(),
+    })
+    setNewName('')
+    setAddOpen(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Day pills */}
+      <div className="flex gap-1.5">
+        {DAY_ORDER.map((day) => (
+          <button
+            key={day}
+            onClick={() => setSelectedDay(day)}
+            className={cn(
+              'flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border',
+              selectedDay === day
+                ? 'text-black'
+                : 'text-white/40 border-white/[0.06] hover:text-white/70'
+            )}
+            style={selectedDay === day ? {
+              background: DAY_COLORS[day],
+              border: `1px solid ${DAY_COLORS[day]}`,
+              boxShadow: `0 0 16px ${DAY_COLORS[day]}50`,
+            } : {}}
+          >
+            {DAY_LABELS[day]}
+          </button>
+        ))}
+      </div>
+
+      {/* Exercise list */}
+      <div className="space-y-3">
+        {liftsForDay.map((lift) => (
+          <ExerciseCard key={lift.id} lift={lift} dayColor={color} />
+        ))}
+        {liftsForDay.length === 0 && (
+          <p className="text-center text-white/30 text-sm py-8">No exercises yet. Add one below.</p>
+        )}
+      </div>
+
+      {/* Add exercise */}
+      <AnimatePresence>
+        {addOpen && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+            <GlassCard glow={color} className="p-4 space-y-3">
+              <NeonInput
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Exercise name"
+                accentColor={color}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleAddExercise()}
+              />
+              <div className="flex gap-2">
+                {(['kg', 'reps', 'bw'] as const).map((u) => (
+                  <button key={u} onClick={() => setNewUnit(u)}
+                    className={cn('flex-1 py-2 rounded-lg text-xs font-bold transition-all border',
+                      newUnit === u ? 'text-black' : 'border-white/[0.06] text-white/40')}
+                    style={newUnit === u ? { background: color, border: `1px solid ${color}` } : {}}>
+                    {u === 'bw' ? 'Bodyweight' : u.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <p className="text-white/30 text-xs">Adding to: <span style={{ color }}>{DAY_LABELS[selectedDay]}</span></p>
+              <NeonButton color={color} size="sm" className="w-full" onClick={handleAddExercise}>
+                Add Exercise
+              </NeonButton>
+            </GlassCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button
+        onClick={() => setAddOpen(!addOpen)}
+        className="w-full py-3 rounded-xl border border-dashed border-white/[0.08] text-white/30 text-sm hover:text-white/50 hover:border-white/20 transition-all flex items-center justify-center gap-2"
+      >
+        <Plus className="w-4 h-4" />
+        Add exercise to {DAY_LABELS[selectedDay]}
+      </button>
+    </div>
+  )
+}
+
+// ── Overview Tab ───────────────────────────────────────────────────────────
 
 function OverviewTab({ lifts }: { lifts: Lift[] }) {
   const { liftSets: liftSetsRaw } = useStore()
@@ -29,12 +386,12 @@ function OverviewTab({ lifts }: { lifts: Lift[] }) {
       {safeLifts.slice(0, 6).map((lift) => {
         const sets = liftSets.filter((s) => s.liftId === lift.id)
         const pr = getPR(sets)
-        const color = lift.unit === 'bw' ? '#C6FF3D' : '#FF2D87'
+        const color = DAY_COLORS[lift.dayCategory] ?? '#FF2D87'
         return (
           <GlassCard key={lift.id} glow={color} className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Dumbbell className="w-3.5 h-3.5" style={{ color }} />
-              <p className="text-white/60 text-xs font-semibold">{lift.name}</p>
+              <p className="text-white/60 text-xs font-semibold truncate">{lift.name}</p>
             </div>
             {pr ? (
               <>
@@ -54,6 +411,8 @@ function OverviewTab({ lifts }: { lifts: Lift[] }) {
     </div>
   )
 }
+
+// ── Bodyweight Tab ─────────────────────────────────────────────────────────
 
 function BodyweightSection() {
   const { bodyweight: bodyweightRaw, addBodyweight, settings } = useStore()
@@ -107,29 +466,17 @@ function BodyweightSection() {
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.3)' }} />
               <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.3)' }} domain={['dataMin - 2', 'dataMax + 2']} />
               <Tooltip contentStyle={{ background: '#0E0B16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} />
-              <Line
-                type="monotone"
-                dataKey="kg"
-                stroke="#00E5FF"
-                strokeWidth={2}
-                dot={false}
-                style={{ filter: 'drop-shadow(0 0 4px #00E5FF)' }}
-              />
+              <Line type="monotone" dataKey="kg" stroke="#00E5FF" strokeWidth={2} dot={false}
+                style={{ filter: 'drop-shadow(0 0 4px #00E5FF)' }} />
             </LineChart>
           </ResponsiveContainer>
         </GlassCard>
       )}
 
       <GlassCard className="p-4 flex gap-3">
-        <NeonInput
-          value={kgInput}
-          onChange={(e) => setKgInput(e.target.value)}
-          placeholder="e.g. 78.5"
-          type="number"
-          accentColor="#00E5FF"
-          className="flex-1"
-          onKeyDown={(e) => e.key === 'Enter' && logToday()}
-        />
+        <NeonInput value={kgInput} onChange={(e) => setKgInput(e.target.value)}
+          placeholder="e.g. 78.5" type="number" accentColor="#00E5FF" className="flex-1"
+          onKeyDown={(e) => e.key === 'Enter' && logToday()} />
         <NeonButton color="#00E5FF" onClick={logToday}>
           <Scale className="w-4 h-4" /> Log
         </NeonButton>
@@ -138,113 +485,7 @@ function BodyweightSection() {
   )
 }
 
-function LiftSection({ lift }: { lift: Lift }) {
-  const { liftSets: liftSetsRaw, addLiftSet, removeLiftSet } = useStore()
-  const [weight, setWeight] = useState('')
-  const [reps, setReps] = useState('')
-  const [rpe, setRpe] = useState('')
-
-  const liftSets = Array.isArray(liftSetsRaw) ? liftSetsRaw : []
-  const liftSetsForThis = liftSets.filter((s) => s.liftId === lift.id)
-  const pr = getPR(liftSetsForThis)
-  const color = lift.unit === 'bw' ? '#C6FF3D' : '#FF2D87'
-
-  // Chart data: best e1RM per date
-  const byDate: Record<string, number> = {}
-  liftSetsForThis.forEach((s) => {
-    const e1rm = epley1RM(s.weight ?? 0, s.reps)
-    if (!byDate[s.date] || e1rm > byDate[s.date]) byDate[s.date] = e1rm
-  })
-  const chartData = Object.entries(byDate)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-20)
-    .map(([date, e1rm]) => ({ date: formatShortDate(date), e1rm: Math.round(e1rm) }))
-
-  const recentSets = [...liftSetsForThis]
-    .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
-    .slice(0, 8)
-
-  function logSet() {
-    const w = lift.unit === 'bw' ? 0 : parseFloat(weight)
-    const r = parseInt(reps)
-    if (isNaN(r) || r < 1) return
-    if (lift.unit !== 'bw' && isNaN(w)) return
-
-    const isNewPR = pr === null || epley1RM(w, r) > pr.est1RM
-    addLiftSet({
-      id: `set-${Date.now()}`,
-      liftId: lift.id,
-      date: toLocalDateString(new Date()),
-      weight: lift.unit === 'bw' ? undefined : w,
-      reps: r,
-      rpe: rpe ? parseInt(rpe) : undefined,
-    })
-    setWeight('')
-    setReps('')
-    setRpe('')
-  }
-
-  return (
-    <GlassCard glow={color} className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-black text-white text-base">{lift.name}</h3>
-          {pr && (
-            <p className="text-xs mt-0.5" style={{ color }}>
-              PR: {pr.weight ? `${pr.weight}kg × ${pr.reps}` : `${pr.reps} reps`} → {pr.est1RM}kg e1RM
-            </p>
-          )}
-        </div>
-        {pr && (
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold"
-            style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}>
-            <Trophy className="w-3 h-3" /> PR
-          </div>
-        )}
-      </div>
-
-      {/* Chart */}
-      {chartData.length > 1 && (
-        <ResponsiveContainer width="100%" height={100}>
-          <LineChart data={chartData}>
-            <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.25)' }} />
-            <YAxis tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.25)' }} width={32} />
-            <Tooltip contentStyle={{ background: '#0E0B16', border: `1px solid ${color}40`, borderRadius: '8px', color: '#fff', fontSize: '11px' }}
-              labelStyle={{ color: 'rgba(255,255,255,0.5)' }} />
-            <Line type="monotone" dataKey="e1rm" stroke={color} strokeWidth={2} dot={false}
-              style={{ filter: `drop-shadow(0 0 4px ${color})` }} />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
-
-      {/* Log set */}
-      <div className="flex gap-2">
-        {lift.unit !== 'bw' && (
-          <NeonInput value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="kg" type="number" accentColor={color} className="w-20" />
-        )}
-        <NeonInput value={reps} onChange={(e) => setReps(e.target.value)} placeholder="reps" type="number" accentColor={color} className="w-20" />
-        <NeonInput value={rpe} onChange={(e) => setRpe(e.target.value)} placeholder="RPE" type="number" accentColor={color} className="w-16" />
-        <NeonButton color={color} size="sm" onClick={logSet}>Log</NeonButton>
-      </div>
-
-      {/* Recent sets */}
-      {recentSets.length > 0 && (
-        <div className="space-y-1">
-          {recentSets.map((s) => (
-            <div key={s.id} className="flex items-center justify-between text-xs text-white/40 py-1 border-b border-white/[0.04] last:border-0">
-              <span>{formatShortDate(s.date)}</span>
-              <span>
-                {s.weight ? `${s.weight}kg × ` : ''}{s.reps} reps
-                {s.rpe ? ` @ RPE ${s.rpe}` : ''}
-              </span>
-              <button onClick={() => removeLiftSet(s.id)} className="text-white/20 hover:text-red-400 transition-colors ml-2">×</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </GlassCard>
-  )
-}
+// ── PRs Tab ────────────────────────────────────────────────────────────────
 
 function PRsSection() {
   const { lifts: liftsRaw, liftSets: liftSetsRaw } = useStore()
@@ -257,7 +498,7 @@ function PRsSection() {
         const sets = liftSets.filter((s) => s.liftId === lift.id)
         const pr = getPR(sets)
         if (!pr) return null
-        const color = lift.unit === 'bw' ? '#C6FF3D' : '#FF2D87'
+        const color = DAY_COLORS[lift.dayCategory] ?? '#FF2D87'
         return (
           <GlassCard key={lift.id} glow={color} className="p-4 flex items-center gap-4">
             <Trophy className="w-5 h-5 flex-shrink-0" style={{ color, filter: `drop-shadow(0 0 6px ${color})` }} />
@@ -278,29 +519,14 @@ function PRsSection() {
   )
 }
 
+// ── Main Page ──────────────────────────────────────────────────────────────
+
 export default function FitnessPage() {
-  const { lifts: liftsRaw, addLift } = useStore()
-  const [tab, setTab] = useState<Tab>('Overview')
-  const [addLiftOpen, setAddLiftOpen] = useState(false)
-  const [newLiftName, setNewLiftName] = useState('')
-  const [newLiftUnit, setNewLiftUnit] = useState<'kg' | 'reps' | 'bw'>('kg')
+  const { lifts: liftsRaw } = useStore()
+  const [tab, setTab] = useState<Tab>('Workout Split')
 
   const lifts = Array.isArray(liftsRaw) ? liftsRaw : []
   const activeLifts = lifts.filter((l) => l.active)
-
-  function handleAddLift() {
-    if (!newLiftName.trim()) return
-    addLift({
-      id: `lift-${Date.now()}`,
-      name: newLiftName.trim(),
-      unit: newLiftUnit,
-      category: newLiftUnit === 'bw' ? 'bodyweight' : 'barbell',
-      active: true,
-      createdAt: new Date().toISOString(),
-    })
-    setNewLiftName('')
-    setAddLiftOpen(false)
-  }
 
   return (
     <div className="px-4 py-8 lg:px-8 max-w-2xl mx-auto">
@@ -308,13 +534,6 @@ export default function FitnessPage() {
         <PageHeader
           title="Fitness"
           subtitle="Track your lifts, bodyweight & PRs"
-          right={
-            tab === 'Log Workout' ? (
-              <NeonButton size="sm" onClick={() => setAddLiftOpen(!addLiftOpen)}>
-                <Plus className="w-3.5 h-3.5" /> Exercise
-              </NeonButton>
-            ) : undefined
-          }
         />
 
         {/* Tabs */}
@@ -334,27 +553,6 @@ export default function FitnessPage() {
           ))}
         </div>
 
-        {/* Add lift form */}
-        <AnimatePresence>
-          {addLiftOpen && (
-            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-              <GlassCard glow="#FF2D87" className="p-4 space-y-3">
-                <NeonInput value={newLiftName} onChange={(e) => setNewLiftName(e.target.value)} placeholder="Exercise name" autoFocus />
-                <div className="flex gap-2">
-                  {(['kg', 'reps', 'bw'] as const).map((u) => (
-                    <button key={u} onClick={() => setNewLiftUnit(u)}
-                      className={cn('flex-1 py-2 rounded-lg text-xs font-bold transition-all border',
-                        newLiftUnit === u ? 'bg-[#FF2D87]/20 border-[#FF2D87]/40 text-[#FF2D87]' : 'border-white/[0.06] text-white/40')}>
-                      {u === 'bw' ? 'Bodyweight' : u.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-                <NeonButton size="sm" className="w-full" onClick={handleAddLift}>Add Exercise</NeonButton>
-              </GlassCard>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* Tab content */}
         <AnimatePresence mode="wait">
           <motion.div
@@ -365,20 +563,9 @@ export default function FitnessPage() {
             transition={{ duration: 0.2 }}
             className="space-y-4"
           >
-            {tab === 'Overview' && (
-              <OverviewTab lifts={activeLifts} />
-            )}
-
-            {tab === 'Log Workout' && (
-              <div className="space-y-4">
-                {activeLifts.map((lift) => (
-                  <LiftSection key={lift.id} lift={lift} />
-                ))}
-              </div>
-            )}
-
+            {tab === 'Workout Split' && <WorkoutSplitTab />}
+            {tab === 'Overview' && <OverviewTab lifts={activeLifts} />}
             {tab === 'Bodyweight' && <BodyweightSection />}
-
             {tab === 'PRs' && <PRsSection />}
           </motion.div>
         </AnimatePresence>

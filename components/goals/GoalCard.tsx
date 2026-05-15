@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check } from 'lucide-react'
+import { Check, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Goal } from '@/types'
 
@@ -16,10 +16,11 @@ interface GoalCardProps {
   goal: Goal
   completed: boolean
   onToggle: () => void
-  workoutLabel?: string  // for workout goal
+  workoutLabel?: string
+  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>
 }
 
-export function GoalCard({ goal, completed, onToggle, workoutLabel }: GoalCardProps) {
+export function GoalCard({ goal, completed, onToggle, workoutLabel, dragHandleProps }: GoalCardProps) {
   const color = goal.color
 
   const displayTitle = goal.id === 'goal-workout' && workoutLabel
@@ -64,6 +65,17 @@ export function GoalCard({ goal, completed, onToggle, workoutLabel }: GoalCardPr
           />
         )}
       </AnimatePresence>
+
+      {/* Drag handle */}
+      {dragHandleProps && (
+        <button
+          className="touch-none flex items-center text-white/20 hover:text-white/50 transition-colors cursor-grab active:cursor-grabbing flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          {...dragHandleProps}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      )}
 
       {/* Checkbox */}
       <motion.div

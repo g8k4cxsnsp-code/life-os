@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Redis } from '@upstash/redis'
 
-function getRedis(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN
-  if (!url || !token) return null
-  return new Redis({ url, token })
-}
+const GIST_ID = process.env.STORAGE_GIST_ID ?? ''
+const GITHUB_TOKEN = process.env.STORAGE_GITHUB_TOKEN ?? ''
+const GIST_API = `https://api.github.com/gists/${GIST_ID}`
 
 async function hashPasscode(passcode: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(passcode))
@@ -15,45 +11,65 @@ async function hashPasscode(passcode: string): Promise<string> {
     .join('')
 }
 
-function kvKey(hash: string) {
-  return `life-os:state:${hash}`
+function gistHeaders() {
+  return {
+    Authorization: `Bearer ${GITHUB_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  }
+}
+
+async function readFile(filename: string): Promise<{ state: unknown; updatedAt: number } | null> {
+  const res = await fetch(GIST_API, { headers: gistHeaders(), cache: 'no-store' })
+  if (!res.ok) return null
+  const gist = await res.json()
+  const file = gist.files?.[filename]
+  if (!file) return null
+  // GitHub truncates large files — fetch raw_url for full content
+  const raw = file.truncated
+    ? await fetch(file.raw_url, { headers: gistHeaders(), cache: 'no-store' }).then((r) => r.text())
+    : file.content
+  try { return JSON.parse(raw) } catch { return null }
+}
+
+async function writeFile(filename: string, data: unknown): Promise<boolean> {
+  const res = await fetch(GIST_API, {
+    method: 'PATCH',
+    headers: gistHeaders(),
+    body: JSON.stringify({ files: { [filename]: { content: JSON.stringify(data) } } }),
+  })
+  return res.ok
 }
 
 export async function GET(req: NextRequest) {
+  if (!GIST_ID || !GITHUB_TOKEN) return NextResponse.json({ error: 'storage not configured' }, { status: 503 })
   const passcode = req.headers.get('x-passcode') ?? ''
   if (passcode.length < 4) return NextResponse.json(null, { status: 400 })
 
-  const redis = getRedis()
-  if (!redis) return NextResponse.json({ error: 'KV not configured' }, { status: 503 })
-
   const hash = await hashPasscode(passcode)
-  const data = await redis.get<{ state: unknown; updatedAt: number }>(kvKey(hash))
+  const data = await readFile(`state-${hash}.json`)
   return NextResponse.json(data ?? null)
 }
 
 export async function PUT(req: NextRequest) {
+  if (!GIST_ID || !GITHUB_TOKEN) return NextResponse.json({ error: 'storage not configured' }, { status: 503 })
   const passcode = req.headers.get('x-passcode') ?? ''
   if (passcode.length < 4) return NextResponse.json({ error: 'passcode required' }, { status: 400 })
 
-  const redis = getRedis()
-  if (!redis) return NextResponse.json({ error: 'KV not configured' }, { status: 503 })
-
   let body: { state: unknown; updatedAt: number }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 })
-  }
+  try { body = await req.json() }
+  catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const hash = await hashPasscode(passcode)
-  const key = kvKey(hash)
+  const filename = `state-${hash}.json`
 
-  // Last-write-wins: only reject if incoming is older than stored
-  const existing = await redis.get<{ updatedAt: number }>(key)
+  // Last-write-wins with timestamp guard
+  const existing = await readFile(filename)
   if (existing && body.updatedAt < existing.updatedAt) {
     return NextResponse.json({ error: 'stale write rejected' }, { status: 409 })
   }
 
-  await redis.set(key, body)
-  return NextResponse.json({ ok: true })
+  const ok = await writeFile(filename, body)
+  return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'write failed' }, { status: 500 })
 }

@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { NeonButton } from '@/components/ui/NeonButton'
 import { NeonInput } from '@/components/ui/NeonInput'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle, Zap, Cloud, CloudOff, RefreshCw } from 'lucide-react'
+import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle, Zap, Cloud, CloudOff, RefreshCw, LogOut } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/cn'
 import type { Goal, Weekday, UserProfile, Sex } from '@/types'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
@@ -704,11 +706,31 @@ function CloudSyncTab() {
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('Goals')
+  const [loggingOut, setLoggingOut] = useState(false)
+  const router = useRouter()
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
 
   return (
     <div className="px-4 py-8 lg:px-8 max-w-2xl mx-auto">
       <div className="space-y-6">
-        <PageHeader title="Settings" subtitle="Customise your Life OS" />
+        <div className="flex items-start justify-between gap-4">
+          <PageHeader title="Settings" subtitle="Customise your Life OS" />
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex items-center gap-1.5 text-white/30 hover:text-white/60 transition-colors text-xs mt-1 shrink-0"
+          >
+            <LogOut size={13} />
+            {loggingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        </div>
 
         {/* Tabs — scrollable */}
         <div className="flex gap-1 overflow-x-auto hide-scrollbar bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">

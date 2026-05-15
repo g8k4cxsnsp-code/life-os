@@ -11,7 +11,7 @@ const lato = Lato({
 })
 
 export const metadata: Metadata = {
-  title: 'Life OS — Janco',
+  title: "Katrien's Daily",
   description: 'Personal discipline, fitness, faith and productivity tracker.',
   manifest: '/manifest.json',
   icons: {

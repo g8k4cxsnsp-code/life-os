@@ -1,4 +1,8 @@
-import type { Goal, WeeklyGoal, Lift, UserSettings, TimerPreset } from '@/types'
+import type { Goal, WeeklyGoal, Lift, UserSettings, TimerPreset, WorkoutDayCategory } from '@/types'
+
+function lift(id: string, name: string, unit: Lift['unit'], category: Lift['category'], dayCategory: WorkoutDayCategory): Lift {
+  return { id, name, unit, category, dayCategory, active: true, createdAt: new Date().toISOString() }
+}
 
 export const DEFAULT_SETTINGS: UserSettings = {
   name: 'Janco',
@@ -131,12 +135,25 @@ export const DEFAULT_WEEKLY_GOALS: WeeklyGoal[] = [
 ]
 
 export const DEFAULT_LIFTS: Lift[] = [
-  { id: 'lift-bench', name: 'Bench Press', unit: 'kg', category: 'barbell', active: true, createdAt: new Date().toISOString() },
-  { id: 'lift-squat', name: 'Squat', unit: 'kg', category: 'barbell', active: true, createdAt: new Date().toISOString() },
-  { id: 'lift-deadlift', name: 'Deadlift', unit: 'kg', category: 'barbell', active: true, createdAt: new Date().toISOString() },
-  { id: 'lift-pullups', name: 'Pull-ups', unit: 'reps', category: 'bodyweight', active: true, createdAt: new Date().toISOString() },
-  { id: 'lift-ohp', name: 'Overhead Press', unit: 'kg', category: 'barbell', active: true, createdAt: new Date().toISOString() },
-  { id: 'lift-row', name: 'Barbell Row', unit: 'kg', category: 'barbell', active: true, createdAt: new Date().toISOString() },
+  // Legs
+  lift('lift-squat',          'Squat',            'kg',   'barbell',    'legs'),
+  lift('lift-deadlift',       'Deadlift',          'kg',   'barbell',    'legs'),
+  lift('lift-legpress',       'Leg Press',         'kg',   'machine',    'legs'),
+  lift('lift-lunge',          'Lunge',             'kg',   'dumbbell',   'legs'),
+  lift('lift-hamcurl',        'Hamstring Curl',    'kg',   'machine',    'legs'),
+  lift('lift-calfraise',      'Calf Raise',        'kg',   'machine',    'legs'),
+  // Back & Chest
+  lift('lift-bench',          'Bench Press',       'kg',   'barbell',    'back-chest'),
+  lift('lift-row',            'Barbell Row',       'kg',   'barbell',    'back-chest'),
+  lift('lift-pullups',        'Pull-ups',          'reps', 'bodyweight', 'back-chest'),
+  lift('lift-incline',        'Incline DB Press',  'kg',   'dumbbell',   'back-chest'),
+  lift('lift-latpulldown',    'Lat Pulldown',      'kg',   'machine',    'back-chest'),
+  // Shoulders & Arms
+  lift('lift-ohp',            'Overhead Press',    'kg',   'barbell',    'shoulders-arms'),
+  lift('lift-lateralraise',   'Lateral Raise',     'kg',   'dumbbell',   'shoulders-arms'),
+  lift('lift-curl',           'Barbell Curl',      'kg',   'barbell',    'shoulders-arms'),
+  lift('lift-triceppush',     'Tricep Pushdown',   'kg',   'machine',    'shoulders-arms'),
+  lift('lift-facepull',       'Face Pull',         'kg',   'machine',    'shoulders-arms'),
 ]
 
 export const DEFAULT_TIMER_PRESETS: TimerPreset[] = [

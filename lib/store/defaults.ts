@@ -26,6 +26,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   timerSound: true,
   timerVibration: true,
   reducedMotion: false,
+  profile: undefined,
+  goalSentence: '',
+  autoTargets: false,
 }
 
 export const DEFAULT_GOALS: Goal[] = [

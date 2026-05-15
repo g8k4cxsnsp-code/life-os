@@ -7,7 +7,10 @@ import type {
   AppStore, Goal, WeeklyGoal, DayLog, WeeklyLog,
   Lift, LiftSet, BodyweightEntry, MealEntry, FoodItem,
   UserSettings, CategoryId, Weekday, WorkoutType, FoodUnit, UserTargets,
+  UserProfile, Sex,
 } from '@/types'
+import { computeTargets, classifyGoalSentence, targetsAreClose } from '@/lib/nutrition/targets-engine'
+import type { GoalBias } from '@/lib/nutrition/targets-engine'
 import { DEFAULT_GOALS, DEFAULT_LIFTS, DEFAULT_SETTINGS, DEFAULT_WEEKLY_GOALS } from './defaults'
 import { toLocalDateString } from '@/lib/date'
 
@@ -16,6 +19,11 @@ import { toLocalDateString } from '@/lib/date'
 interface StoreActions {
   // Settings
   updateSettings: (patch: Partial<UserSettings>) => void
+  setProfile: (p: UserProfile) => void
+  setGoalSentence: (s: string) => void
+  setAutoTargets: (on: boolean) => void
+  recomputeTargets: () => void
+  dismissNudge: (date: string, nudgeId: string) => void
 
   // Goals
   toggleGoal: (goalId: string, date: string) => void
@@ -242,6 +250,9 @@ function sanitizeDayLog(input: unknown): DayLog | null {
     sleepRating: optNum(input.sleepRating),
     steps: optNum(input.steps),
     kcal: optNum(input.kcal),
+    dismissedNudges: Array.isArray(input.dismissedNudges)
+      ? input.dismissedNudges.filter((v): v is string => typeof v === 'string')
+      : undefined,
   }
 }
 
@@ -282,6 +293,23 @@ function sanitizeSchedule(input: unknown, fallback: Record<Weekday, WorkoutType>
   return out
 }
 
+function sanitizeProfile(input: unknown): UserProfile | undefined {
+  if (!isObj(input)) return undefined
+  const age = optNum(input.age)
+  const weightKg = optNum(input.weightKg)
+  const heightCm = optNum(input.heightCm)
+  const trainingDaysPerWeek = optNum(input.trainingDaysPerWeek)
+  if (!age || !weightKg || !heightCm || trainingDaysPerWeek === undefined) return undefined
+  const sex: Sex = input.sex === 'female' ? 'female' : 'male'
+  return {
+    age: Math.max(1, Math.min(120, age)),
+    sex,
+    weightKg: Math.max(20, Math.min(500, weightKg)),
+    heightCm: Math.max(50, Math.min(300, heightCm)),
+    trainingDaysPerWeek: Math.max(0, Math.min(7, trainingDaysPerWeek)),
+  }
+}
+
 function sanitizeSettings(input: unknown, fallback: UserSettings): UserSettings {
   const x = isObj(input) ? input : {}
   return {
@@ -294,6 +322,9 @@ function sanitizeSettings(input: unknown, fallback: UserSettings): UserSettings 
     timerSound: bool(x.timerSound, fallback.timerSound),
     timerVibration: bool(x.timerVibration, fallback.timerVibration),
     reducedMotion: bool(x.reducedMotion, fallback.reducedMotion),
+    profile: sanitizeProfile(x.profile),
+    goalSentence: optStr(x.goalSentence) ?? '',
+    autoTargets: bool(x.autoTargets, false),
   }
 }
 
@@ -346,6 +377,78 @@ export const useStore = create<FullStore>()(
 
       updateSettings: (patch) =>
         set((s) => ({ settings: { ...s.settings, ...patch } })),
+
+      setProfile: (p) =>
+        set((s) => {
+          const next = { ...s.settings, profile: p }
+          if (!next.autoTargets) return { settings: next }
+          const bias = classifyGoalSentence(next.goalSentence ?? '')
+          const computed = computeTargets(p, bias)
+          if (targetsAreClose(computed, next.targets)) return { settings: next }
+          return {
+            settings: {
+              ...next,
+              targets: { ...next.targets, ...computed },
+            },
+          }
+        }),
+
+      setGoalSentence: (goalSentence) =>
+        set((s) => {
+          const next = { ...s.settings, goalSentence }
+          if (!next.autoTargets || !next.profile) return { settings: next }
+          const bias = classifyGoalSentence(goalSentence)
+          const computed = computeTargets(next.profile, bias)
+          if (targetsAreClose(computed, next.targets)) return { settings: next }
+          return {
+            settings: {
+              ...next,
+              targets: { ...next.targets, ...computed },
+            },
+          }
+        }),
+
+      setAutoTargets: (autoTargets) =>
+        set((s) => {
+          const next = { ...s.settings, autoTargets }
+          if (!autoTargets || !next.profile) return { settings: next }
+          const bias = classifyGoalSentence(next.goalSentence ?? '')
+          const computed = computeTargets(next.profile, bias)
+          return {
+            settings: {
+              ...next,
+              targets: { ...next.targets, ...computed },
+            },
+          }
+        }),
+
+      recomputeTargets: () =>
+        set((s) => {
+          const { settings: st } = s
+          if (!st.autoTargets || !st.profile) return s
+          const bias = classifyGoalSentence(st.goalSentence ?? '')
+          const computed = computeTargets(st.profile, bias)
+          if (targetsAreClose(computed, st.targets)) return s
+          return {
+            settings: {
+              ...st,
+              targets: { ...st.targets, ...computed },
+            },
+          }
+        }),
+
+      dismissNudge: (date, nudgeId) =>
+        set((s) => {
+          const log = ensureDayLog(s.history, date)
+          const existing = log.dismissedNudges ?? []
+          if (existing.includes(nudgeId)) return s
+          return {
+            history: {
+              ...s.history,
+              [date]: { ...log, dismissedNudges: [...existing, nudgeId] },
+            },
+          }
+        }),
 
       toggleGoal: (goalId, date) =>
         set((s) => {
@@ -478,11 +581,9 @@ export const useStore = create<FullStore>()(
         if (typeof window === 'undefined') return { getItem: () => null, setItem: () => {}, removeItem: () => {} }
         return localStorage
       }),
-      // v2 introduces strict item sanitization in `merge`. Anything older is
-      // discarded entirely — we'd rather start the user clean than carry
-      // shape bugs forward. The app launched this week, so no real data is
-      // at risk.
-      version: 2,
+      // v3 adds profile, goalSentence, autoTargets, dismissedNudges.
+      // v2 data is migrated through sanitizeMerge which handles missing fields gracefully.
+      version: 3,
       skipHydration: true,
       migrate: (persistedState: unknown, fromVersion: number) => {
         if (fromVersion < 2 || !persistedState || typeof persistedState !== 'object') {
@@ -542,4 +643,9 @@ export function useTodayMeals() {
     if (!Array.isArray(meals)) return []
     return meals.filter((m) => m && m.date === date)
   }, [meals, date])
+}
+
+export function useGoalBias(): GoalBias {
+  const goalSentence = useStore((s) => s.settings.goalSentence ?? '')
+  return useMemo(() => classifyGoalSentence(goalSentence), [goalSentence])
 }

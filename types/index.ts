@@ -43,6 +43,7 @@ export interface DayLog {
   sleepRating?: number        // 0–100, subjective quality of last night's sleep
   steps?: number
   kcal?: number
+  dismissedNudges?: string[]  // nudge ids dismissed this day
 }
 
 // ── Weekly Goals ──────────────────────────────────────────────────────────
@@ -162,16 +163,29 @@ export interface UserTargets {
   sleepH: number
 }
 
+export type Sex = 'male' | 'female'
+
+export interface UserProfile {
+  age: number
+  sex: Sex
+  weightKg: number
+  heightCm: number
+  trainingDaysPerWeek: number  // 0–7
+}
+
 export interface UserSettings {
   name: string
   wakeTime: string            // 'HH:MM'
-  height: number              // cm
-  startingWeight: number      // kg
+  height: number              // cm — kept for back-compat
+  startingWeight: number      // kg — kept for back-compat
   schedule: Record<Weekday, WorkoutType>
   targets: UserTargets
   timerSound: boolean
   timerVibration: boolean
   reducedMotion: boolean
+  profile?: UserProfile
+  goalSentence?: string
+  autoTargets?: boolean
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────

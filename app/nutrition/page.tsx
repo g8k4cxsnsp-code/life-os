@@ -10,10 +10,12 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { NeonButton } from '@/components/ui/NeonButton'
 import { NeonInput } from '@/components/ui/NeonInput'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Trash2, AlertCircle, Check, Plus, Search } from 'lucide-react'
+import { Trash2, AlertCircle, Check, Plus, Search, BookOpen, X } from 'lucide-react'
 import type { ParsedFoodChunk, FoodItem, MealEntry } from '@/types'
 import { FOODS_DB } from '@/lib/nutrition/foods'
 import { cn } from '@/lib/cn'
+import { buildNudges } from '@/lib/nutrition/recommendations'
+import { useGoalBias, useTodayLog } from '@/lib/store'
 
 // ── Macro ring ─────────────────────────────────────────────────────────────
 function MacroRing({ label, current, target, color }: {
@@ -68,17 +70,29 @@ function TeachModal({
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
   const [per, setPer] = useState<'100g' | 'item'>('100g')
+  const [defaultQtyStr, setDefaultQtyStr] = useState('')
+  const [aliasesStr, setAliasesStr] = useState(query ? query.toLowerCase().trim() : '')
+
+  const kcalVal = parseFloat(kcal) || 0
+  const proteinVal = parseFloat(protein) || 0
+  const carbsVal = parseFloat(carbs) || 0
+  const fatVal = parseFloat(fat) || 0
+  const hasPreview = kcalVal > 0 || proteinVal > 0 || carbsVal > 0 || fatVal > 0
 
   function handleSave() {
+    const rawAliases = aliasesStr.split(',').map((a) => a.trim().toLowerCase()).filter(Boolean)
+    const nameAlias = name.toLowerCase().trim()
+    const aliases = Array.from(new Set([nameAlias, ...rawAliases]))
     const food: FoodItem = {
       id: `custom-${Date.now()}`,
       name: name.trim(),
-      aliases: [name.toLowerCase().trim()],
+      aliases,
       per,
-      kcal: parseFloat(kcal) || 0,
-      protein: parseFloat(protein) || 0,
-      carbs: parseFloat(carbs) || 0,
-      fat: parseFloat(fat) || 0,
+      kcal: kcalVal,
+      protein: proteinVal,
+      carbs: carbsVal,
+      fat: fatVal,
+      defaultQty: per === 'item' && defaultQtyStr ? parseFloat(defaultQtyStr) || undefined : undefined,
       custom: true,
     }
     onSave(food)
@@ -101,9 +115,9 @@ function TeachModal({
         <GlassCard glow="#C026FF" className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-black text-white">Teach the App</h3>
-            <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">×</button>
+            <button onClick={onClose} className="text-white/40 hover:text-white transition-colors text-lg leading-none">×</button>
           </div>
-          <p className="text-white/50 text-sm">What are the macros for &ldquo;{query}&rdquo;?</p>
+          <p className="text-white/50 text-sm">What are the macros for <span className="text-[#C026FF] font-semibold">&ldquo;{query}&rdquo;</span>?</p>
 
           <NeonInput value={name} onChange={(e) => setName(e.target.value)} label="Food name" accentColor="#C026FF" />
 
@@ -117,6 +131,17 @@ function TeachModal({
             ))}
           </div>
 
+          {per === 'item' && (
+            <NeonInput
+              value={defaultQtyStr}
+              onChange={(e) => setDefaultQtyStr(e.target.value)}
+              label="Serving weight (g) — optional"
+              placeholder="e.g. 118 for a medium banana"
+              type="number"
+              accentColor="#C026FF"
+            />
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <NeonInput value={kcal} onChange={(e) => setKcal(e.target.value)} label="Calories" placeholder="kcal" type="number" accentColor="#C026FF" />
             <NeonInput value={protein} onChange={(e) => setProtein(e.target.value)} label="Protein" placeholder="g" type="number" accentColor="#C026FF" />
@@ -124,8 +149,28 @@ function TeachModal({
             <NeonInput value={fat} onChange={(e) => setFat(e.target.value)} label="Fat" placeholder="g" type="number" accentColor="#C026FF" />
           </div>
 
-          <NeonButton color="#C026FF" className="w-full" onClick={handleSave}>
-            <Check className="w-4 h-4" /> Save Food
+          <div>
+            <NeonInput
+              value={aliasesStr}
+              onChange={(e) => setAliasesStr(e.target.value)}
+              label="Aliases (comma-separated)"
+              placeholder="e.g. protein powder, whey, shake"
+              accentColor="#C026FF"
+            />
+            <p className="text-white/30 text-[10px] mt-1">These alternate names will also match in search.</p>
+          </div>
+
+          {hasPreview && (
+            <div className="rounded-lg px-3 py-2 text-xs text-white/50" style={{ background: 'rgba(192,38,255,0.06)', border: '1px solid rgba(192,38,255,0.15)' }}>
+              {per === '100g' ? '100g' : '1 serving'} = <span className="text-white/80">{kcalVal} kcal</span>
+              {' · '}P <span className="text-[#FF2D87]">{proteinVal}g</span>
+              {' · '}C <span className="text-[#C6FF3D]">{carbsVal}g</span>
+              {' · '}F <span className="text-[#FFB020]">{fatVal}g</span>
+            </div>
+          )}
+
+          <NeonButton color="#C026FF" className="w-full" onClick={handleSave} disabled={!name.trim()}>
+            <Check className="w-4 h-4" /> Teach the App
           </NeonButton>
         </GlassCard>
       </motion.div>
@@ -137,13 +182,27 @@ function TeachModal({
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 
 export default function NutritionPage() {
-  const { settings, customFoods: customFoodsRaw, addMealEntry, removeMealEntry, addCustomFood, meals } = useStore()
+  const { settings, customFoods: customFoodsRaw, addMealEntry, removeMealEntry, addCustomFood, dismissNudge, meals } = useStore()
   const todayMealsRaw = useTodayMeals()
+  const todayLog = useTodayLog()
+  const goalBias = useGoalBias()
   const todayMeals = Array.isArray(todayMealsRaw) ? todayMealsRaw : []
   const customFoods = Array.isArray(customFoodsRaw) ? customFoodsRaw : []
   const targets = settings?.targets ?? DEFAULT_SETTINGS.targets
   const { kcal, protein, carbs, fat } = sumMacros(todayMeals)
   const today = toLocalDateString(new Date())
+
+  const dismissed = todayLog.dismissedNudges ?? []
+  const hour = new Date().getHours()
+  const waterL = todayLog.waterL ?? 0
+  const nudges = buildNudges({
+    totals: { kcal, protein, carbs, fat },
+    targets,
+    bias: goalBias,
+    hourOfDay: hour,
+    waterL,
+    waterTarget: targets.waterL,
+  }).filter((n) => !dismissed.includes(n.id))
 
   const [input, setInput] = useState('')
   const [parsed, setParsed] = useState<ParsedFoodChunk[]>([])
@@ -268,6 +327,41 @@ export default function NutritionPage() {
           </div>
         </GlassCard>
 
+        {/* Nudge strip */}
+        <AnimatePresence>
+          {nudges.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+            >
+              {nudges.map((nudge, i) => {
+                const color = nudge.tone === 'warn' ? '#FFB020' : nudge.tone === 'good' ? '#C6FF3D' : '#00E5FF'
+                return (
+                  <motion.div
+                    key={nudge.id}
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.06 }}
+                    className="flex items-start gap-2 flex-shrink-0 max-w-[280px] rounded-xl px-3 py-2.5 text-xs"
+                    style={{ background: `${color}10`, border: `1px solid ${color}30` }}
+                  >
+                    <span className="mt-0.5 flex-shrink-0" style={{ color }}>{nudge.tone === 'warn' ? '⚠' : nudge.tone === 'good' ? '✓' : 'ℹ'}</span>
+                    <span className="text-white/80 leading-relaxed">{nudge.text}</span>
+                    <button
+                      onClick={() => dismissNudge(today, nudge.id)}
+                      className="ml-1 flex-shrink-0 text-white/20 hover:text-white/60 transition-colors mt-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </motion.div>
+                )
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Search foods (MFP-style autocomplete) */}
         <GlassCard glow="#C6FF3D" className="p-4 space-y-3">
           <p className="text-white/40 text-xs uppercase tracking-wider">Search Foods</p>
@@ -300,6 +394,27 @@ export default function NutritionPage() {
                     <span className="text-white/20 text-xs">{Math.round(confidence * 100)}%</span>
                   </button>
                 ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* No match — teach prompt */}
+          <AnimatePresence>
+            {search.trim().length > 1 && searchResults.length === 0 && !selected && (
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                style={{ background: 'rgba(192,38,255,0.06)', border: '1px solid rgba(192,38,255,0.2)' }}
+              >
+                <div className="flex items-center gap-2 text-sm text-white/50">
+                  <BookOpen className="w-4 h-4 text-[#C026FF]" />
+                  <span>No match for <span className="text-white/70 font-medium">&ldquo;{search}&rdquo;</span></span>
+                </div>
+                <button
+                  onClick={() => setTeachQuery(search.trim())}
+                  className="text-[#C026FF] text-xs font-bold hover:text-[#C026FF]/80 transition-colors whitespace-nowrap ml-3"
+                >
+                  Teach the app →
+                </button>
               </motion.div>
             )}
           </AnimatePresence>

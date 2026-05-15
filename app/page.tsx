@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { useStore, useTodayLog, useTodayGoals } from '@/lib/store'
+import { useStore, useTodayLog, useTodayGoals, useGoalBias } from '@/lib/store'
 import { getTodayWeekday, getTimeGreeting, getWorkoutLabel } from '@/lib/schedule'
 import { getCurrentStreak, getWeeklyCompletionPercent } from '@/lib/streaks'
 import { toLocalDateString } from '@/lib/date'
@@ -11,8 +11,10 @@ import { QuoteCard } from '@/components/dashboard/QuoteCard'
 import { GoalCard } from '@/components/goals/GoalCard'
 import { RecoveryDay } from '@/components/goals/RecoveryDay'
 import { sumMacros } from '@/lib/nutrition/calc'
+import { buildNudges } from '@/lib/nutrition/recommendations'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 import { useMounted } from '@/lib/useMounted'
+import { AnimatePresence } from 'framer-motion'
 
 const container = {
   hidden: {},
@@ -26,7 +28,7 @@ const item = {
 
 export default function DashboardPage() {
   const mounted = useMounted()
-  const { settings, history, goals, meals, toggleGoal, updateDayLog } = useStore()
+  const { settings, history, goals, meals, toggleGoal, updateDayLog, dismissNudge } = useStore()
 
   // Safe accessors — if a stale persisted payload ever bypasses our `merge`,
   // we still won't crash on `targets.kcal` / `schedule[weekday]`.
@@ -47,8 +49,20 @@ export default function DashboardPage() {
   const progressPct = todayGoals.length === 0 ? 0 : Math.round((completed.length / todayGoals.length) * 100)
 
   const todayMeals = meals.filter((m) => m.date === today)
-  const { kcal } = sumMacros(todayMeals)
+  const { kcal, protein, carbs, fat: fatMacro } = sumMacros(todayMeals)
   const waterL = todayLog.waterL ?? 0
+  const goalBias = useGoalBias()
+  const dismissed = todayLog.dismissedNudges ?? []
+  const topNudge = mounted
+    ? buildNudges({
+        totals: { kcal, protein, carbs, fat: fatMacro },
+        targets,
+        bias: goalBias,
+        hourOfDay: new Date().getHours(),
+        waterL,
+        waterTarget: targets.waterL,
+      }).filter((n) => n.tone === 'warn' && !dismissed.includes(n.id))[0] ?? null
+    : null
 
   // Time-of-day greeting + locale date depend on the user's clock & timezone,
   // so only compute them after mount — otherwise SSR (UTC) and CSR disagree
@@ -94,6 +108,28 @@ export default function DashboardPage() {
             <p className="text-white/50 text-base mt-1">Your goals for today.</p>
           )}
         </motion.div>
+
+        {/* Top nutrition nudge */}
+        <AnimatePresence>
+          {topNudge && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="flex items-start gap-2.5 rounded-xl px-3 py-2.5"
+              style={{ background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.25)' }}
+            >
+              <span className="text-[#FFB020] text-sm mt-0.5">⚠</span>
+              <p className="flex-1 text-white/70 text-xs leading-relaxed">{topNudge.text}</p>
+              <button
+                onClick={() => dismissNudge(today, topNudge.id)}
+                className="text-white/20 hover:text-white/60 transition-colors mt-0.5 text-sm leading-none"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Recovery day override */}
         {isRestDay ? (

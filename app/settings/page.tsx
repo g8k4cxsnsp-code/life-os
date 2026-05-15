@@ -7,12 +7,13 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { NeonButton } from '@/components/ui/NeonButton'
 import { NeonInput } from '@/components/ui/NeonInput'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle } from 'lucide-react'
+import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle, Zap } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import type { Goal, Weekday } from '@/types'
+import type { Goal, Weekday, UserProfile, Sex } from '@/types'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
 import { WEEKDAY_NAMES } from '@/lib/schedule'
 import type { WorkoutType } from '@/types'
+import { classifyGoalSentence } from '@/lib/nutrition/targets-engine'
 
 const TABS = ['Goals', 'Profile', 'Targets', 'Schedule', 'Foods', 'Data'] as const
 type Tab = typeof TABS[number]
@@ -150,18 +151,164 @@ function GoalsTab() {
 }
 
 // ── Profile tab ────────────────────────────────────────────────────────────
+const ACTIVITY_LABEL = (d: number) => {
+  if (d <= 0) return 'Sedentary'
+  if (d <= 2) return 'Light'
+  if (d <= 4) return 'Moderate'
+  if (d <= 6) return 'Very Active'
+  return 'Extreme'
+}
+
+const BIAS_COLOR: Record<string, string> = {
+  cut: '#FF2D87',
+  bulk: '#C6FF3D',
+  recomp: '#00E5FF',
+  maintain: '#7A5CFF',
+}
+
 function ProfileTab() {
-  const { settings, updateSettings } = useStore()
+  const { settings, updateSettings, setProfile, setGoalSentence, setAutoTargets } = useStore()
   const s = settings
+  const p = s.profile ?? { age: 25, sex: 'male' as Sex, weightKg: 75, heightCm: s.height || 175, trainingDaysPerWeek: 4 }
+  const bias = classifyGoalSentence(s.goalSentence ?? '')
+
+  function updateProfile(patch: Partial<UserProfile>) {
+    const next = { ...p, ...patch }
+    setProfile(next)
+    updateSettings({ height: next.heightCm, startingWeight: next.weightKg })
+  }
 
   return (
     <div className="space-y-4">
+      {/* Identity */}
       <GlassCard className="p-4 space-y-4">
+        <p className="text-white/40 text-xs uppercase tracking-wider">Identity</p>
         <NeonInput label="Name" value={s.name} onChange={(e) => updateSettings({ name: e.target.value })} />
         <NeonInput label="Wake time" type="time" value={s.wakeTime} onChange={(e) => updateSettings({ wakeTime: e.target.value })} />
+      </GlassCard>
+
+      {/* Body stats */}
+      <GlassCard className="p-4 space-y-4">
+        <p className="text-white/40 text-xs uppercase tracking-wider">Body Stats</p>
+
         <div className="grid grid-cols-2 gap-3">
-          <NeonInput label="Height (cm)" type="number" value={String(s.height)} onChange={(e) => updateSettings({ height: parseFloat(e.target.value) || s.height })} />
-          <NeonInput label="Starting weight (kg)" type="number" value={String(s.startingWeight)} onChange={(e) => updateSettings({ startingWeight: parseFloat(e.target.value) || s.startingWeight })} />
+          <NeonInput
+            label="Age"
+            type="number"
+            value={String(p.age)}
+            onChange={(e) => updateProfile({ age: parseInt(e.target.value) || p.age })}
+            accentColor="#00E5FF"
+          />
+          <div>
+            <p className="text-white/40 text-[10px] uppercase tracking-wider mb-2">Sex</p>
+            <div className="flex gap-2">
+              {(['male', 'female'] as Sex[]).map((sex) => (
+                <button
+                  key={sex}
+                  onClick={() => updateProfile({ sex })}
+                  className={cn(
+                    'flex-1 py-2 rounded-lg text-xs font-bold border transition-all capitalize',
+                    p.sex === sex
+                      ? 'bg-[#00E5FF]/20 border-[#00E5FF]/40 text-[#00E5FF]'
+                      : 'border-white/[0.06] text-white/40'
+                  )}
+                >
+                  {sex}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <NeonInput
+            label="Weight (kg)"
+            type="number"
+            value={String(p.weightKg)}
+            onChange={(e) => updateProfile({ weightKg: parseFloat(e.target.value) || p.weightKg })}
+            accentColor="#C6FF3D"
+          />
+          <NeonInput
+            label="Height (cm)"
+            type="number"
+            value={String(p.heightCm)}
+            onChange={(e) => updateProfile({ heightCm: parseFloat(e.target.value) || p.heightCm })}
+            accentColor="#C6FF3D"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-white/40 text-[10px] uppercase tracking-wider">Training days per week</p>
+            <span className="text-xs font-bold" style={{ color: '#FFB020' }}>
+              {p.trainingDaysPerWeek}d — {ACTIVITY_LABEL(p.trainingDaysPerWeek)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={7}
+            value={p.trainingDaysPerWeek}
+            onChange={(e) => updateProfile({ trainingDaysPerWeek: parseInt(e.target.value) })}
+            className="w-full accent-[#FFB020]"
+          />
+          <div className="flex justify-between text-white/20 text-[10px] mt-1">
+            <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Goal */}
+      <GlassCard className="p-4 space-y-3">
+        <p className="text-white/40 text-xs uppercase tracking-wider">Your Goal</p>
+        <NeonInput
+          label="What are you working toward?"
+          value={s.goalSentence ?? ''}
+          onChange={(e) => setGoalSentence(e.target.value)}
+          placeholder='e.g. "lean down to 80kg while keeping strength"'
+          accentColor="#C026FF"
+        />
+        {(s.goalSentence ?? '').length > 2 && (
+          <div className="flex items-center gap-2">
+            <span className="text-white/40 text-xs">Detected goal:</span>
+            <span
+              className="text-xs font-bold px-2.5 py-1 rounded-full capitalize"
+              style={{ background: `${BIAS_COLOR[bias]}20`, color: BIAS_COLOR[bias], border: `1px solid ${BIAS_COLOR[bias]}40` }}
+            >
+              {bias}
+            </span>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Auto-targets toggle */}
+      <GlassCard className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="w-4 h-4 text-[#C6FF3D]" />
+              <p className="text-white font-semibold text-sm">Auto-calculate targets</p>
+            </div>
+            <p className="text-white/40 text-xs">
+              {s.autoTargets
+                ? 'Targets are being computed from your profile and goal. Go to the Targets tab to view them.'
+                : 'Turn on to auto-set your daily kcal, macros, water, and steps based on your stats above.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setAutoTargets(!(s.autoTargets ?? false))}
+            className={cn(
+              'relative flex-shrink-0 w-12 h-6 rounded-full transition-colors duration-200',
+              s.autoTargets ? 'bg-[#C6FF3D]' : 'bg-white/[0.1]'
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-1 w-4 h-4 rounded-full bg-black transition-transform duration-200',
+                s.autoTargets ? 'translate-x-7' : 'translate-x-1'
+              )}
+            />
+          </button>
         </div>
       </GlassCard>
     </div>
@@ -170,25 +317,45 @@ function ProfileTab() {
 
 // ── Targets tab ────────────────────────────────────────────────────────────
 function TargetsTab() {
-  const { settings, updateSettings } = useStore()
+  const { settings, updateSettings, setAutoTargets } = useStore()
   const t = settings?.targets ?? DEFAULT_SETTINGS.targets
+  const auto = settings?.autoTargets ?? false
 
   function update(patch: Partial<typeof t>) {
+    if (auto) return
     updateSettings({ targets: { ...t, ...patch } })
   }
 
   return (
-    <GlassCard className="p-4 space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <NeonInput label="Daily Calories" type="number" value={String(t.kcal)} onChange={(e) => update({ kcal: parseInt(e.target.value) || t.kcal })} accentColor="#C026FF" />
-        <NeonInput label="Protein (g)" type="number" value={String(t.protein)} onChange={(e) => update({ protein: parseInt(e.target.value) || t.protein })} accentColor="#FF2D87" />
-        <NeonInput label="Carbs (g)" type="number" value={String(t.carbs)} onChange={(e) => update({ carbs: parseInt(e.target.value) || t.carbs })} accentColor="#C6FF3D" />
-        <NeonInput label="Fat (g)" type="number" value={String(t.fat)} onChange={(e) => update({ fat: parseInt(e.target.value) || t.fat })} accentColor="#FFB020" />
-        <NeonInput label="Water (L)" type="number" step="0.1" value={String(t.waterL)} onChange={(e) => update({ waterL: parseFloat(e.target.value) || t.waterL })} accentColor="#00E5FF" />
-        <NeonInput label="Steps" type="number" value={String(t.steps)} onChange={(e) => update({ steps: parseInt(e.target.value) || t.steps })} accentColor="#C6FF3D" />
-        <NeonInput label="Sleep (hrs)" type="number" value={String(t.sleepH)} onChange={(e) => update({ sleepH: parseInt(e.target.value) || t.sleepH })} accentColor="#7A5CFF" />
-      </div>
-    </GlassCard>
+    <div className="space-y-4">
+      {auto && (
+        <div className="rounded-xl px-3 py-2.5 text-xs text-white/60 flex items-start gap-2"
+          style={{ background: 'rgba(198,255,61,0.06)', border: '1px solid rgba(198,255,61,0.2)' }}>
+          <Zap className="w-3.5 h-3.5 text-[#C6FF3D] mt-0.5 flex-shrink-0" />
+          <span>
+            Auto-calculated from your profile.{' '}
+            <button onClick={() => setAutoTargets(false)} className="underline text-[#C6FF3D] hover:text-[#C6FF3D]/80">
+              Turn off auto-targets
+            </button>{' '}
+            to edit manually.
+          </span>
+        </div>
+      )}
+      <GlassCard className={cn('p-4 space-y-4', auto && 'opacity-70')}>
+        <div className="grid grid-cols-2 gap-3">
+          <NeonInput label="Daily Calories" type="number" value={String(t.kcal)} onChange={(e) => update({ kcal: parseInt(e.target.value) || t.kcal })} accentColor="#C026FF" disabled={auto} />
+          <NeonInput label="Protein (g)" type="number" value={String(t.protein)} onChange={(e) => update({ protein: parseInt(e.target.value) || t.protein })} accentColor="#FF2D87" disabled={auto} />
+          <NeonInput label="Carbs (g)" type="number" value={String(t.carbs)} onChange={(e) => update({ carbs: parseInt(e.target.value) || t.carbs })} accentColor="#C6FF3D" disabled={auto} />
+          <NeonInput label="Fat (g)" type="number" value={String(t.fat)} onChange={(e) => update({ fat: parseInt(e.target.value) || t.fat })} accentColor="#FFB020" disabled={auto} />
+          <NeonInput label="Water (L)" type="number" step="0.1" value={String(t.waterL)} onChange={(e) => update({ waterL: parseFloat(e.target.value) || t.waterL })} accentColor="#00E5FF" disabled={auto} />
+          <NeonInput label="Steps" type="number" value={String(t.steps)} onChange={(e) => update({ steps: parseInt(e.target.value) || t.steps })} accentColor="#C6FF3D" disabled={auto} />
+        </div>
+      </GlassCard>
+      {/* Sleep is always editable */}
+      <GlassCard className="p-4">
+        <NeonInput label="Sleep (hrs)" type="number" value={String(t.sleepH)} onChange={(e) => updateSettings({ targets: { ...t, sleepH: parseInt(e.target.value) || t.sleepH } })} accentColor="#7A5CFF" />
+      </GlassCard>
+    </div>
   )
 }
 

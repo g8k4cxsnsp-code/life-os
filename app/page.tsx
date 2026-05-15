@@ -1,6 +1,7 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -17,6 +18,7 @@ import { getCurrentStreak, getWeeklyCompletionPercent } from '@/lib/streaks'
 import { toLocalDateString } from '@/lib/date'
 import { ProgressRing } from '@/components/dashboard/ProgressRing'
 import { StatCard } from '@/components/dashboard/StatCard'
+import { WaterModal } from '@/components/dashboard/WaterModal'
 import { QuoteCard } from '@/components/dashboard/QuoteCard'
 import { GoalCard } from '@/components/goals/GoalCard'
 import { RecoveryDay } from '@/components/goals/RecoveryDay'
@@ -71,7 +73,9 @@ const item = {
 
 export default function DashboardPage() {
   const mounted = useMounted()
+  const router = useRouter()
   const dndId = useId()
+  const [showWaterModal, setShowWaterModal] = useState(false)
   const { settings, history, goals, meals, toggleGoal, updateDayLog, reorderGoals, dismissNudge } = useStore()
 
   const sensors = useSensors(
@@ -218,6 +222,7 @@ export default function DashboardPage() {
                   color="#FF2D87"
                   icon="🔥"
                   subtext="consecutive"
+                  onClick={() => router.push('/progress')}
                 />
                 <StatCard
                   label="This week"
@@ -225,6 +230,7 @@ export default function DashboardPage() {
                   color="#C6FF3D"
                   icon="📈"
                   subtext="completed"
+                  onClick={() => router.push('/weekly')}
                 />
                 <StatCard
                   label="Calories"
@@ -233,6 +239,7 @@ export default function DashboardPage() {
                   color="#C026FF"
                   icon="🍽️"
                   progress={(kcal / targets.kcal) * 100}
+                  onClick={() => router.push('/nutrition')}
                 />
                 <StatCard
                   label="Water"
@@ -251,6 +258,7 @@ export default function DashboardPage() {
                       waterL: Math.round((current + 0.25) * 100) / 100,
                     })
                   }}
+                  onClick={() => setShowWaterModal(true)}
                 />
               </div>
             </motion.div>
@@ -291,6 +299,17 @@ export default function DashboardPage() {
           <QuoteCard />
         </motion.div>
       </motion.div>
+
+      <AnimatePresence>
+        {showWaterModal && (
+          <WaterModal
+            today={today}
+            waterL={waterL}
+            targetL={targets.waterL}
+            onClose={() => setShowWaterModal(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

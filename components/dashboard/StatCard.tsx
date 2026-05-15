@@ -13,11 +13,17 @@ interface StatCardProps {
   progress?: number  // 0–100
   actionLabel?: string
   onAction?: () => void
+  onClick?: () => void
 }
 
-export function StatCard({ label, value, unit, subtext, color, icon, progress, actionLabel, onAction }: StatCardProps) {
+export function StatCard({ label, value, unit, subtext, color, icon, progress, actionLabel, onAction, onClick }: StatCardProps) {
   return (
-    <GlassCard glow={color} hover className="p-4 flex flex-col gap-2">
+    <GlassCard
+      glow={color}
+      hover
+      className={`p-4 flex flex-col gap-2${onClick ? ' cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between">
         <span className="text-white/40 text-xs font-semibold uppercase tracking-wider">{label}</span>
         {icon && (
@@ -46,7 +52,7 @@ export function StatCard({ label, value, unit, subtext, color, icon, progress, a
       {actionLabel && onAction && (
         <button
           type="button"
-          onClick={onAction}
+          onClick={(e) => { e.stopPropagation(); onAction() }}
           className="self-end mt-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors active:scale-95"
           style={{
             color,

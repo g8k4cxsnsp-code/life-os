@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Target, Calendar, Dumbbell, MoreHorizontal,
-  UtensilsCrossed, Timer, Settings, Moon, TrendingUp,
+  UtensilsCrossed, Timer, Settings, Moon, TrendingUp, Scale,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useState } from 'react'
@@ -21,6 +21,7 @@ const MORE_NAV = [
   { href: '/weekly', label: 'Goals', icon: Target },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/fitness', label: 'Fitness', icon: Dumbbell },
+  { href: '/weight', label: 'Weight', icon: Scale },
   { href: '/timer', label: 'Timer', icon: Timer },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

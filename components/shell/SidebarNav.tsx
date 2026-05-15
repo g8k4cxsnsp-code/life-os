@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Target, Calendar, Dumbbell,
-  UtensilsCrossed, Timer, Settings, Zap, Moon, TrendingUp,
+  UtensilsCrossed, Timer, Settings, Zap, Moon, TrendingUp, Scale,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useStore } from '@/lib/store'
@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: '/fitness', label: 'Fitness', icon: Dumbbell },
   { href: '/nutrition', label: 'Nutrition', icon: UtensilsCrossed },
   { href: '/sleep', label: 'Sleep', icon: Moon },
+  { href: '/weight', label: 'Weight', icon: Scale },
   { href: '/timer', label: 'Timer', icon: Timer },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
@@ -89,7 +90,7 @@ export function SidebarNav() {
 
       {/* Footer */}
       <div className="px-6 py-4 border-t border-white/[0.06]">
-        <p className="text-white/20 text-xs">All data stays on-device.</p>
+        <p className="text-white/20 text-xs">Data synced via cloud passcode.</p>
       </div>
     </aside>
   )

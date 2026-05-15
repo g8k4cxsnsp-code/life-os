@@ -8,6 +8,7 @@ import { useEffect } from 'react'
 import { useStore } from '@/lib/store'
 import { Toaster } from 'sonner'
 import { SuggestionEngine } from '@/components/SuggestionEngine'
+import { SyncProvider } from '@/components/sync/SyncProvider'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -59,6 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Toaster position="top-center" />
       <SuggestionEngine />
+      <SyncProvider />
     </div>
   )
 }

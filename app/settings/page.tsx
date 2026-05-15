@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { NeonButton } from '@/components/ui/NeonButton'
 import { NeonInput } from '@/components/ui/NeonInput'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle, Zap } from 'lucide-react'
+import { Trash2, Plus, Edit2, Check, X, Download, Upload, AlertTriangle, Zap, Cloud, CloudOff, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Goal, Weekday, UserProfile, Sex } from '@/types'
 import { DEFAULT_SETTINGS } from '@/lib/store/defaults'
@@ -15,7 +15,7 @@ import { WEEKDAY_NAMES } from '@/lib/schedule'
 import type { WorkoutType } from '@/types'
 import { classifyGoalSentence } from '@/lib/nutrition/targets-engine'
 
-const TABS = ['Goals', 'Profile', 'Targets', 'Schedule', 'Foods', 'Data'] as const
+const TABS = ['Goals', 'Profile', 'Targets', 'Schedule', 'Foods', 'Data', 'Sync'] as const
 type Tab = typeof TABS[number]
 
 const NEON_COLORS = ['#FF2D87', '#00E5FF', '#C6FF3D', '#C026FF', '#7A5CFF', '#FFB020', '#FF6B35']
@@ -534,6 +534,173 @@ function DataTab() {
   )
 }
 
+// ── Cloud Sync ─────────────────────────────────────────────────────────────
+function CloudSyncTab() {
+  const [passcode, setPasscode] = useState('')
+  const [storedPasscode, setStoredPasscode] = useState<string | null>(null)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle')
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
+  const [conflict, setConflict] = useState<'none' | 'choosing'>('none')
+  const [conflictMsg, setConflictMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    // Dynamic import to avoid SSR issues
+    import('@/lib/sync/cloud').then(({ getStoredPasscode, getLocalUpdatedAt }) => {
+      const stored = getStoredPasscode()
+      setStoredPasscode(stored)
+      if (stored) {
+        setLastSyncedAt(getLocalUpdatedAt() || null)
+        setSyncStatus('synced')
+      }
+    })
+    import('@/lib/sync/syncManager').then(({ registerStatusCallback, getCurrentSyncStatus }) => {
+      const { status, lastSyncedAt: ts } = getCurrentSyncStatus()
+      setSyncStatus(status)
+      setLastSyncedAt(ts)
+      registerStatusCallback((s, ts) => {
+        setSyncStatus(s)
+        setLastSyncedAt(ts)
+      })
+    })
+  }, [])
+
+  async function connectPasscode() {
+    if (passcode.length < 4) return
+    setBusy(true)
+    const { loadCloudState, storePasscode, getLocalUpdatedAt } = await import('@/lib/sync/cloud')
+    const { forcePushToCloud, forceRestoreFromCloud, initSync } = await import('@/lib/sync/syncManager')
+
+    const remote = await loadCloudState(passcode)
+    const localTs = getLocalUpdatedAt()
+
+    if (remote && remote.updatedAt > 0 && remote.updatedAt !== localTs) {
+      // Cloud has data that differs — ask user
+      setConflictMsg(
+        remote.updatedAt > localTs
+          ? 'Cloud has newer data. Restore from cloud or push local?'
+          : 'Local has newer data. Push local or restore from cloud?'
+      )
+      setConflict('choosing')
+      setBusy(false)
+      return
+    }
+
+    // Cloud empty or same — push local up
+    storePasscode(passcode)
+    setStoredPasscode(passcode)
+    await forcePushToCloud(passcode)
+    initSync()
+    setBusy(false)
+    setPasscode('')
+  }
+
+  async function resolveConflict(action: 'push' | 'restore') {
+    setBusy(true)
+    setConflict('none')
+    const { storePasscode } = await import('@/lib/sync/cloud')
+    const { forcePushToCloud, forceRestoreFromCloud, initSync } = await import('@/lib/sync/syncManager')
+    storePasscode(passcode)
+    setStoredPasscode(passcode)
+    if (action === 'push') await forcePushToCloud(passcode)
+    else await forceRestoreFromCloud(passcode)
+    initSync()
+    setBusy(false)
+    setPasscode('')
+  }
+
+  async function disconnect() {
+    const { clearPasscode } = await import('@/lib/sync/cloud')
+    const { stopSync } = await import('@/lib/sync/syncManager')
+    stopSync()
+    clearPasscode()
+    setStoredPasscode(null)
+    setSyncStatus('idle')
+    setLastSyncedAt(null)
+  }
+
+  async function syncNow() {
+    if (!storedPasscode) return
+    setBusy(true)
+    const { forcePushToCloud } = await import('@/lib/sync/syncManager')
+    await forcePushToCloud(storedPasscode)
+    setBusy(false)
+  }
+
+  const statusColor = syncStatus === 'synced' ? '#C6FF3D' : syncStatus === 'syncing' ? '#00E5FF' : syncStatus === 'error' || syncStatus === 'offline' ? '#FF2D87' : 'rgba(255,255,255,0.3)'
+  const statusLabel = syncStatus === 'synced' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : syncStatus === 'offline' ? 'Offline' : 'Not connected'
+
+  return (
+    <div className="space-y-4">
+      <GlassCard glow="#00E5FF" className="p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(0,229,255,0.12)', border: '1px solid rgba(0,229,255,0.3)' }}>
+            {storedPasscode ? <Cloud className="w-4 h-4 text-[#00E5FF]" /> : <CloudOff className="w-4 h-4 text-white/30" />}
+          </div>
+          <div className="flex-1">
+            <p className="text-white font-semibold text-sm">Cloud Sync</p>
+            <p className="text-xs" style={{ color: statusColor }}>{statusLabel}</p>
+          </div>
+          {lastSyncedAt && (
+            <p className="text-white/30 text-xs">
+              {new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
+        </div>
+
+        {!storedPasscode && conflict === 'none' && (
+          <>
+            <p className="text-white/40 text-xs">Enter a passcode (≥4 chars) to sync your data across devices and deployments. Use the same passcode on all your devices.</p>
+            <NeonInput
+              label="Passcode"
+              type="password"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="min. 4 characters"
+              accentColor="#00E5FF"
+              onKeyDown={(e) => e.key === 'Enter' && connectPasscode()}
+            />
+            <NeonButton color="#00E5FF" className="w-full" onClick={connectPasscode} disabled={passcode.length < 4 || busy}>
+              {busy ? 'Connecting…' : 'Connect & Sync'}
+            </NeonButton>
+          </>
+        )}
+
+        {conflict === 'choosing' && (
+          <div className="space-y-3">
+            <p className="text-white/60 text-sm">{conflictMsg}</p>
+            <div className="flex gap-2">
+              <NeonButton color="#00E5FF" className="flex-1" onClick={() => resolveConflict('restore')} disabled={busy}>
+                Restore from cloud
+              </NeonButton>
+              <NeonButton color="#C026FF" variant="outline" className="flex-1" onClick={() => resolveConflict('push')} disabled={busy}>
+                Push local
+              </NeonButton>
+            </div>
+          </div>
+        )}
+
+        {storedPasscode && conflict === 'none' && (
+          <div className="flex gap-2">
+            <NeonButton color="#00E5FF" variant="outline" className="flex-1" onClick={syncNow} disabled={busy}>
+              <RefreshCw className="w-3.5 h-3.5" /> {busy ? 'Syncing…' : 'Sync now'}
+            </NeonButton>
+            <NeonButton color="#FF2D87" variant="outline" onClick={disconnect}>
+              Sign out
+            </NeonButton>
+          </div>
+        )}
+      </GlassCard>
+
+      <GlassCard className="p-4">
+        <p className="text-white/30 text-xs leading-relaxed">
+          Your passcode is never stored on the server — only a one-way hash is used as the key. Your data is encrypted in transit via HTTPS. Use a strong passcode (12+ chars recommended).
+        </p>
+      </GlassCard>
+    </div>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('Goals')
@@ -571,6 +738,7 @@ export default function SettingsPage() {
             {tab === 'Schedule' && <ScheduleTab />}
             {tab === 'Foods' && <FoodsTab />}
             {tab === 'Data' && <DataTab />}
+            {tab === 'Sync' && <CloudSyncTab />}
           </motion.div>
         </AnimatePresence>
       </div>
